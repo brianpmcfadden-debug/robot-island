@@ -1,141 +1,196 @@
-/* Headless test for Robot Island: the map, belts, machines, goals, costs, time away and saving.
+/* Headless test for Robot Island: the map, belts, machines, goals, costs, upgrades, time away and saving.
    Loads the page's <script> with a stubbed DOM; the game itself never starts (window.__TEST__). */
-const fs=require('fs'), path=require('path');
+const fs=require('fs'), path=require('path'), cp=require('child_process');
 const html=fs.readFileSync(path.join(__dirname,'index.html'),'utf8');
-const js=html.match(/<script>([\s\S]*)<\/script>/)[1];
 
 const noop=()=>{};
 const documentStub={ getElementById:()=>null, querySelectorAll:()=>[], addEventListener:noop, createElement:()=>({getContext:()=>null}) };
 const store=new Map();
 const localStorageStub={ getItem:k=>store.has(k)?store.get(k):null, setItem:(k,v)=>store.set(k,String(v)), removeItem:k=>store.delete(k) };
-
 const args=['window','document','localStorage','matchMedia','innerWidth','innerHeight','devicePixelRatio','requestAnimationFrame','addEventListener','navigator','console'];
-const body=js+'\n;return {N,TPS,ROCKET,RES,ITEMS,BUILD,RECIPES,GOALS,GOAL_GIFT,AWAY_CAP_S,HIST_BUCKET_S,FAMILY,KEY,COLORS,'+
-  'genMap,newIsland,unpackIsland,packIsland,place,removeB,placeProblem,setRecipe,step,at,give,creditAway,rateOf,checkGoals,unlocked,islandCode,readCode,heal,openIsland,blob,'+
-  'getData:function(){return DATA;},setData:function(d){DATA=d;}};';
-const M=new Function(...args,body)({__TEST__:true},documentStub,localStorageStub,()=>({matches:false}),390,800,2,()=>0,noop,{},console);
+function loadGame(src,names){
+  const js=src.match(/<script>([\s\S]*)<\/script>/)[1];
+  return new Function(...args,js+'\n;return {'+names+'};')({__TEST__:true},documentStub,localStorageStub,()=>({matches:false}),390,800,2,()=>0,noop,{},console);
+}
+const M=loadGame(html,'N,TPS,ROCKET,RES,ITEMS,BUILD,RECIPES,GOALS,GOAL_GIFT,UPGRADES,UP,AWAY_H,HIST_BUCKET_S,FAMILY,KEY,COLORS,OLD_SHIFT,'+
+  'genMap,dims,newIsland,unpackIsland,packIsland,place,removeB,placeProblem,setRecipe,turn,face,canFace,outTiles,step,at,give,creditAway,rateOf,checkGoals,unlocked,'+
+  'speedOf,awayHours,buyUpgrade,upgradeProblem,canUpgrade,islandCode,readCode,heal,openIsland,restartIsland,blob,'+
+  'getData:function(){return DATA;},setData:function(d){DATA=d;},getISL:function(){return ISL;}');
 
 let fails=0,checks=0;
 function ok(c,m){ checks++; if(!c){ fails++; console.log('  FAIL:',m); } }
-const N=M.N;
+const N=M.N, R=M.ROCKET.x;
+ok(N===96&&R===46&&M.ROCKET.y===46,'96-square map with the rocket in the middle');
 
 /* ---- the map ---- */
-const a=M.genMap(1234), b=M.genMap(1234), c=M.genMap(99);
+const a=M.genMap(1234,2), b=M.genMap(1234,2), c=M.genMap(99,2);
 ok(a.ground.every((v,i)=>v===b.ground[i])&&a.res.every((v,i)=>v===b.res[i]),'same seed, same map');
 ok(!a.res.every((v,i)=>v===c.res[i]),'different seed, different map');
-for(const seed of [1,2,3,1234,20261126,987654321]){
-  const m=M.genMap(seed), tally=[0,0,0,0,0];
+const nearest=(m,r)=>{ let best=99; for(let y=0;y<N;y++) for(let x=0;x<N;x++) if(m.res[y*N+x]===r) best=Math.min(best,Math.hypot(x+0.5-48,y+0.5-48)); return best; };
+for(const seed of [1,2,3,1234,20261126,987654321,555,8080]){
+  const m=M.genMap(seed,2), tally=[0,0,0,0,0];
   m.res.forEach(r=>tally[r]++);
-  for(let r=1;r<=4;r++) ok(tally[r]>=14,`seed ${seed}: enough ${M.RES[r]} (${tally[r]})`);
+  for(let r=1;r<=4;r++) ok(tally[r]>=20,`seed ${seed}: enough ${M.RES[r]} (${tally[r]})`);
   let land=0; m.ground.forEach(g=>{ if(g) land++; });
-  ok(land>900&&land<N*N*0.8,`seed ${seed}: island size ${land}`);
-  for(let y=M.ROCKET.y-1;y<=M.ROCKET.y+4;y++) for(let x=M.ROCKET.x-1;x<=M.ROCKET.x+4;x++)
+  ok(land>2000&&land<N*N*0.8,`seed ${seed}: island size ${land}`);
+  for(let y=R-1;y<=R+4;y++) for(let x=R-1;x<=R+4;x++)
     ok(m.ground[y*N+x]===2&&!m.res[y*N+x],`seed ${seed}: rocket area clear at ${x},${y}`);
-  // a near patch of wood and of stone, so the first goal is quick
-  const near=r=>{ let n=0; for(let y=0;y<N;y++) for(let x=0;x<N;x++) if(m.res[y*N+x]===r&&Math.hypot(x-32,y-32)<13) n++; return n; };
-  ok(near(1)>=7&&near(2)>=7,`seed ${seed}: wood and stone near the rocket (${near(1)}, ${near(2)})`);
+  const near=r=>{ let n=0; for(let y=0;y<N;y++) for(let x=0;x<N;x++) if(m.res[y*N+x]===r&&Math.hypot(x-48,y-48)<16) n++; return n; };
+  ok(near(1)>=7&&near(2)>=7,`seed ${seed}: wood and stone not too far (${near(1)}, ${near(2)})`);
+  const old=M.genMap(seed,1);
+  ok(nearest(m,3)>nearest(old,3)&&nearest(m,4)>nearest(old,4),`seed ${seed}: ore is more spread out (iron ${nearest(old,3).toFixed(1)}→${nearest(m,3).toFixed(1)}, copper ${nearest(old,4).toFixed(1)}→${nearest(m,4).toFixed(1)})`);
 }
+// Version-1 islands keep exactly the map they had, moved to the middle.
+let oldHtml=null;
+try{ oldHtml=cp.execSync('git show 1b05dea:index.html',{cwd:__dirname,encoding:'utf8',stdio:['ignore','pipe','ignore']}); }catch(e){}
+if(oldHtml){
+  const O=loadGame(oldHtml,'genMap');
+  for(const seed of [20261126,4242]){
+    const o=O.genMap(seed), m=M.genMap(seed,1), S=M.OLD_SHIFT;
+    let same=true;
+    for(let y=0;y<64;y++) for(let x=0;x<64;x++) if(o.ground[y*64+x]!==m.ground[(y+S)*N+x+S]||o.res[y*64+x]!==m.res[(y+S)*N+x+S]) same=false;
+    ok(same,`seed ${seed}: the version-1 map is unchanged`);
+  }
+} else console.log('  (skipped the version-1 map check: no git history)');
 
-// A test island with a flat, empty strip of grass west of the rocket (rows 26–37, columns 6–29).
+// A test island with a flat, empty strip of grass west of the rocket.
+const SX0=R-24, SX1=R-1, SY0=R-4, SY1=R+7;
 function testIsland(){
   const isl=M.newIsland(1234,'Test');
-  for(let y=26;y<=37;y++) for(let x=6;x<30;x++){ isl.map.ground[y*N+x]=2; isl.map.res[y*N+x]=0; }
+  for(let y=SY0;y<=SY1;y++) for(let x=SX0;x<=SX1;x++){ isl.map.ground[y*N+x]=2; isl.map.res[y*N+x]=0; }
   return isl;
 }
 const run=(isl,n)=>{ for(let i=0;i<n;i++) M.step(isl); };
 
+/* ---- sizes: one square per input ---- */
+ok(M.dims('furnace',0)+''==='1,1'&&M.dims('workshop',3)+''==='1,1','furnaces and workshops are 1 square');
+ok(M.dims('assembler',0)+''==='1,2'&&M.dims('assembler',1)+''==='2,1','an assembler is 2 squares, across its arrow side');
+ok(M.dims('factory',2)+''==='1,3'&&M.dims('factory',3)+''==='3,1','a rocket factory is 3 squares');
+for(const t in M.RECIPES){
+  if(t==='furnace') continue;
+  const len=M.BUILD[t].len;
+  M.RECIPES[t].forEach(rc=>ok(Object.keys(rc.in).length===len,`${t} ${rc.id}: ${Object.keys(rc.in).length} inputs for ${len} squares`));
+}
+M.RECIPES.furnace.forEach(rc=>ok(Object.keys(rc.in).length===1,'furnace '+rc.id+' has one input'));
+{
+  const isl=testIsland();
+  isl.goal=8; isl.store={gear:100,wire:100,ironbar:100,motor:20,chip:20,plate:100};
+  const asm=M.place(isl,'assembler',R-20,R,0);
+  ok(asm&&asm.w===1&&asm.h===2&&M.at(isl,R-20,R+1)===asm&&!M.at(isl,R-19,R),'assembler takes 1×2 facing east');
+  ok(JSON.stringify(M.outTiles(asm))===JSON.stringify([[R-19,R],[R-19,R+1]]),'it puts things out on both squares of its arrow side');
+  M.turn(isl,asm);
+  ok(asm.r===1&&asm.w===2&&asm.h===1&&M.at(isl,R-19,R)===asm&&!M.at(isl,R-20,R+1),'turning swings it to 2×1');
+  M.place(isl,'belt',R-20,R+1,0);
+  M.turn(isl,asm);   // facing west would need (R-20,R+1), which now has a belt; facing north fits
+  ok(asm.r===3&&asm.w===2,'turning skips a way that doesn’t fit (r='+asm.r+')');
+  // pointing it a chosen way (the panel's arrows)
+  ok(!M.canFace(isl,asm,2)&&M.canFace(isl,asm,3)&&M.canFace(isl,asm,1),'only ways that fit can be picked');
+  ok(!M.face(isl,asm,2)&&asm.r===3,'a blocked way is refused');
+  ok(M.face(isl,asm,1)&&asm.r===1&&asm.w===2&&M.at(isl,R-19,R)===asm,'pointing it down');
+  const lone=M.place(isl,'belt',R-12,R+4,0);
+  ok([0,1,2,3].every(r=>M.canFace(isl,lone,r))&&M.face(isl,lone,3)&&lone.r===3,'a belt can point any way');
+  ok(!M.canFace(isl,M.at(isl,R+1,R+1),1),'the rocket doesn’t turn');
+  const f=M.place(isl,'factory',R-15,R,0);
+  ok(f&&f.h===3,'factory placed');
+  M.setRecipe(isl,f,'engine');
+  [['motor',2],['chip',2]].forEach(([k,n])=>{ for(let i=0;i<n;i++) M.give(isl,f,k,0,R-16,R); });
+  run(isl,150);
+  ok(!f.out.engine,'two of three inputs make nothing');
+  for(let i=0;i<4;i++) M.give(isl,f,'ironbar',0,R-16,R);
+  run(isl,101);
+  ok(f.out.engine===1,'motors + chips + iron bars make an engine');
+}
+
 /* ---- belts ---- */
 {
   const isl=testIsland();
-  for(let x=24;x<30;x++) ok(M.place(isl,'belt',x,31,0),'belt placed '+x);
-  const first=M.at(isl,24,31);
-  ok(M.give(isl,first,'wood',0,23,31),'item onto a belt');
+  for(let x=R-6;x<R;x++) ok(M.place(isl,'belt',x,R+1,0),'belt placed '+x);
+  ok(M.give(isl,M.at(isl,R-6,R+1),'wood',0,R-7,R+1),'item onto a belt');
   run(isl,59);
   ok(!isl.store.wood,'not there yet after 59 steps');
   run(isl,3);
   ok(isl.store.wood===1&&isl.got.wood===1,'6 squares of belt delivers in ~60 steps (store '+isl.store.wood+')');
-  // a full belt holds 3 a square and backs up behind a dead end
   const isl2=testIsland();
-  for(let x=10;x<14;x++) M.place(isl2,'belt',x,28,0);
-  for(let i=0;i<80;i++){ M.give(isl2,M.at(isl2,10,28),'stone',isl2.tick,9,28); M.step(isl2); }
+  for(let x=R-20;x<R-16;x++) M.place(isl2,'belt',x,R-2,0);
+  for(let i=0;i<80;i++){ M.give(isl2,M.at(isl2,R-20,R-2),'stone',isl2.tick,R-21,R-2); M.step(isl2); }
   run(isl2,100);
-  const held=[10,11,12,13].map(x=>M.at(isl2,x,28).it.length);
+  const held=[0,1,2,3].map(k=>M.at(isl2,R-20+k,R-2).it.length);
   ok(held.every(n=>n===3),'a backed-up belt holds 3 per square ('+held+')');
-  // two belts facing each other don't swap items
   const isl3=testIsland();
-  M.place(isl3,'belt',10,30,0); M.place(isl3,'belt',11,30,2);
-  ok(!M.give(isl3,M.at(isl3,11,30),'wood',0,10,30),'a belt won’t pass back into the belt it points at');
+  M.place(isl3,'belt',R-20,R,0); M.place(isl3,'belt',R-19,R,2);
+  ok(!M.give(isl3,M.at(isl3,R-19,R),'wood',0,R-20,R),'a belt won’t pass back into the belt it points at');
 }
 
-/* ---- drill → belt → furnace → belt → rocket ---- */
-{
+/* ---- drill → belt → furnace (1 square) → belt → rocket ---- */
+function ironLine(up){
   const isl=testIsland();
-  for(const [x,y] of [[20,30],[21,30],[20,31],[21,31]]) isl.map.res[y*N+x]=3;   // iron ore
-  isl.goal=1;   // furnace unlocked
-  isl.store={stone:100,wood:100};
-  const d=M.place(isl,'drill',20,30,0);
+  for(const [x,y] of [[R-10,R],[R-9,R],[R-10,R+1],[R-9,R+1]]) isl.map.res[y*N+x]=3;
+  isl.goal=1; isl.store={stone:100,wood:100}; Object.assign(isl.up,up||{});
+  const d=M.place(isl,'drill',R-10,R,0);
   ok(d&&d.res==='iron'&&d.cov===4,'drill on 4 iron squares');
-  ok(M.place(isl,'belt',22,30,0),'belt from the drill');
-  const f=M.place(isl,'furnace',23,30,0);
-  ok(f,'furnace placed');
-  for(let x=25;x<30;x++) M.place(isl,'belt',x,30,0);
+  ok(M.place(isl,'belt',R-8,R,0),'belt from the drill');
+  ok(M.place(isl,'furnace',R-7,R,0),'furnace placed');
+  for(let x=R-6;x<R;x++) M.place(isl,'belt',x,R,0);
   run(isl,M.TPS*60);
-  const bars=isl.got.ironbar||0;
-  // drill: 1 a second; furnace: 1 per 1.5 s, so ~40 bars a minute less the start-up
-  ok(bars>=34&&bars<=40,'iron bars in a minute: '+bars);
   ok(!isl.got.iron,'ore went into the furnace, not the rocket');
+  return isl.got.ironbar||0;
 }
+const bars=ironLine();
+ok(bars>=34&&bars<=40,'iron bars in a minute: '+bars);   // drill 1/s, furnace 1 per 1.5 s
+const fastBars=ironLine({drill:1,furnace:2});
+ok(fastBars>=bars*1.3,'upgraded drill and furnace make more: '+fastBars);
 
-/* ---- assemblers need both inputs; workshops need a recipe ---- */
+/* ---- assemblers need both inputs; machines need a recipe ---- */
 {
   const isl=testIsland();
-  isl.goal=4;
-  isl.store={gear:50,wire:50,ironbar:50,wood:50};
-  const asm=M.place(isl,'assembler',10,30,0);
+  isl.goal=4; isl.store={gear:50,wire:50,ironbar:50,wood:50};
+  const asm=M.place(isl,'assembler',R-20,R,0);
   ok(asm,'assembler placed');
-  ok(!M.give(isl,asm,'gear',0,9,30),'no recipe: takes nothing');
+  ok(!M.give(isl,asm,'gear',0,R-21,R),'no recipe: takes nothing');
   M.setRecipe(isl,asm,'motor');
-  for(let i=0;i<4;i++) ok(M.give(isl,asm,'gear',0,9,30),'takes gears');
-  ok(!M.give(isl,asm,'gear',0,9,30),'but only up to twice what one needs');
-  ok(!M.give(isl,asm,'plank',0,9,30),'won’t take things it doesn’t use');
+  for(let i=0;i<4;i++) ok(M.give(isl,asm,'gear',0,R-21,R),'takes gears');
+  ok(!M.give(isl,asm,'gear',0,R-21,R),'but only up to twice what one needs');
+  ok(!M.give(isl,asm,'plank',0,R-21,R),'won’t take things it doesn’t use');
   run(isl,200);
   ok(!asm.out.motor&&!asm.cr,'gears alone make nothing');
-  for(let i=0;i<4;i++) M.give(isl,asm,'wire',0,9,30);
+  for(let i=0;i<4;i++) M.give(isl,asm,'wire',0,R-21,R+1);
   run(isl,61);
   ok(asm.out.motor===1,'gears + wire make a motor');
-  // changing the recipe hands back what it held
   const before=isl.store.gear;
   M.setRecipe(isl,asm,'chip');
-  ok(isl.store.gear===before+2&&!asm.in.gear,'new recipe returns leftovers ('+before+' → '+isl.store.gear+')');
+  ok(isl.store.gear===before+2&&!asm.in.gear,'new recipe returns leftovers');
 }
 
 /* ---- costs, free buildings and refunds ---- */
 {
   const isl=testIsland();
   ok(isl.free.drill===4&&isl.free.belt===40,'starts with free drills and belts');
-  isl.map.res[30*N+10]=1;
-  const d=M.place(isl,'drill',10,30,0);
+  isl.map.res[R*N+R-20]=1;
+  const d=M.place(isl,'drill',R-20,R,0);
   ok(d&&d.free&&isl.free.drill===3,'first drills are free');
   M.removeB(isl,d);
   ok(isl.free.drill===4,'removing a free one gives it back');
   isl.free.drill=0; isl.store={wood:5,stone:4};
-  ok(M.placeProblem(isl,'drill',10,30)==='cost','can’t afford a drill with 4 stone');
+  ok(M.placeProblem(isl,'drill',R-20,R,0)==='cost','can’t afford a drill with 4 stone');
   isl.store.stone=5;
-  const d2=M.place(isl,'drill',10,30,0);
+  const d2=M.place(isl,'drill',R-20,R,0);
   ok(d2&&!isl.store.wood&&!isl.store.stone,'a drill costs 5 wood and 5 stone');
   d2.out={wood:3};
   M.removeB(isl,d2);
-  ok(isl.store.wood===8&&isl.store.stone===5,'removing refunds the cost and what it held ('+JSON.stringify(isl.store)+')');
-  ok(M.placeProblem(isl,'drill',14,33)==='nores','drills need something to mine');
-  ok(M.placeProblem(isl,'belt',0,0)==='blocked','nothing goes on water');
-  ok(!M.removeB(isl,M.at(isl,31,31)),'the rocket can’t be removed');
+  ok(isl.store.wood===8&&isl.store.stone===5,'removing refunds the cost and what it held');
+  ok(M.placeProblem(isl,'drill',R-16,R+3,0)==='nores','drills need something to mine');
+  ok(M.placeProblem(isl,'belt',0,0,0)==='blocked','nothing goes on water');
+  ok(!M.removeB(isl,M.at(isl,R+1,R+1)),'the rocket can’t be removed');
 }
 
 /* ---- goals unlock buildings in order ---- */
+const makers={};
+for(const t in M.RECIPES) M.RECIPES[t].forEach(r=>{ makers[r.out]=t; });
+const openBy=(t,g)=>t==='drill'||t==='belt'||M.GOALS.slice(0,g).some(x=>x.unlock===t);   // unlocked after g goals
 {
   const isl=testIsland();
   ok(M.unlocked(isl,'drill')&&M.unlocked(isl,'belt'),'drills and belts from the start');
-  ok(!M.unlocked(isl,'furnace')&&M.placeProblem(isl,'furnace',10,30)==='locked','furnace locked at first');
+  ok(!M.unlocked(isl,'furnace')&&M.placeProblem(isl,'furnace',R-20,R,0)==='locked','furnace locked at first');
   isl.got={wood:30,stone:29}; M.checkGoals(isl);
   ok(isl.goal===0,'goal 1 needs all 30 stone');
   isl.got.stone=30; M.checkGoals(isl);
@@ -144,74 +199,103 @@ const run=(isl,n)=>{ for(let i=0;i<n;i++) M.step(isl); };
   M.GOALS.forEach(g=>{ for(const k in g.need) isl.got[k]=g.need[k]; });
   M.checkGoals(isl);
   ok(isl.goal===M.GOALS.length,'every goal can be finished');
-  ok(M.unlocked(isl,'assembler'),'assembler unlocked by the end');
-  // every goal's items can be made by something unlocked by then
-  const makers={};
-  for(const t in M.RECIPES) M.RECIPES[t].forEach(r=>{ makers[r.out]=t; });
-  M.GOALS.forEach((g,i)=>{
-    const open=t=>t==='drill'||M.GOALS.slice(0,i).some(x=>x.unlock===t);
-    for(const k in g.need){
-      const t=makers[k]||'drill';
-      ok(open(t),`goal ${i+1}: ${k} comes from ${t}, which is unlocked by then`);
-    }
-  });
-  // and every building's cost is something you can make before it unlocks
+  ok(M.unlocked(isl,'assembler')&&M.unlocked(isl,'factory'),'assembler and factory unlocked by the end');
+  M.GOALS.forEach((g,i)=>{ for(const k in g.need){ const t=makers[k]||'drill'; ok(openBy(t,i),`goal ${i+1}: ${k} comes from ${t}, unlocked by then`); } });
   for(const t in M.BUILD){
     const g=M.GOALS.findIndex(x=>x.unlock===t);
-    for(const k in M.BUILD[t].cost){
-      const m=makers[k]||'drill';
-      const mg=M.GOALS.findIndex(x=>x.unlock===m);
-      ok(m==='drill'||mg<g,`${t} costs ${k}, made by ${m} (unlocked earlier)`);
-    }
+    for(const k in M.BUILD[t].cost){ const m=makers[k]||'drill'; ok(m==='drill'||M.GOALS.findIndex(x=>x.unlock===m)<g,`${t} costs ${k}, made by ${m} (unlocked earlier)`); }
   }
+  // every recipe input can be made by a machine unlocked no later than the machine using it
+  for(const t in M.RECIPES) M.RECIPES[t].forEach(rc=>{ for(const k in rc.in){ const m=makers[k]||'drill'; ok(m==='drill'||M.GOALS.findIndex(x=>x.unlock===m)<=M.GOALS.findIndex(x=>x.unlock===t),`${t} ${rc.id} needs ${k} from ${m}`); } });
+}
+
+/* ---- the upgrade tree ---- */
+{
+  M.UPGRADES.forEach(u=>{
+    u.cost.forEach((c,i)=>{ for(const k in c) ok(!!M.ITEMS[k]&&c[k]>0,`${u.id} ${i+1}: ${k}`); });
+    ok((u.x||u.hours).length===u.cost.length,u.id+': an effect per level');
+    const fx=u.x||u.hours; ok(fx.every((v,i)=>!i||v>fx[i-1]),u.id+': each level is better');
+  });
+  const isl=testIsland();
+  ok(M.speedOf(isl,'belt')===1&&M.awayHours(isl)===8,'no upgrades at first');
+  ok(M.upgradeProblem(isl,'belt')==='cost'&&!M.canUpgrade(isl),'can’t afford one yet');
+  ok(M.upgradeProblem(isl,'furnace')==='locked','a machine’s branch waits for the machine');
+  isl.store={wood:200,stone:200};
+  ok(M.canUpgrade(isl),'now one is affordable');
+  ok(M.buyUpgrade(isl,'belt')&&isl.up.belt===1&&isl.store.wood===140&&isl.store.stone===160,'buying takes its cost from the rocket');
+  ok(M.speedOf(isl,'belt')===1.5,'belts ×1.5');
+  ok(M.upgradeProblem(isl,'belt')==='cost','level II costs other things');
+  isl.up.belt=3; ok(M.upgradeProblem(isl,'belt')==='max','three levels at most');
+  // faster belts deliver sooner
+  for(let x=R-6;x<R;x++) M.place(isl,'belt',x,R+1,0);
+  M.give(isl,M.at(isl,R-6,R+1),'wood',isl.tick,R-7,R+1);
+  run(isl,26);
+  ok(isl.got.wood===1,'belts ×2.5: 6 squares in under 30 steps');
+  isl.up.robot=3; ok(M.awayHours(isl)===24,'Night shift III: 24 hours');
 }
 
 /* ---- time away ---- */
 {
   const isl=testIsland();
-  isl.hist=[{wood:10},{wood:10,stone:5}];   // 20 wood and 5 stone in 20 seconds
+  isl.hist=[{wood:10},{wood:10,stone:5}];
   ok(Math.abs(M.rateOf(isl,'wood')-1)<1e-9,'rate is the rolling average');
   ok(M.creditAway(isl,10000)===null,'under 30 seconds: nothing');
   const r=M.creditAway(isl,3600*1000);
-  ok(r.items.wood===3600&&r.items.stone===900&&!r.capped,'an hour away ('+JSON.stringify(r.items)+')');
-  ok(isl.store.wood===3600&&isl.got.wood===3600,'away items count for storage and goals');
-  ok(isl.goal===1,'and can finish goals');
+  ok(r.items.wood===3600&&r.items.stone===900&&!r.capped,'an hour away');
+  ok(isl.store.wood===3600&&isl.got.wood===3600&&isl.goal===1,'away items count for storage and goals');
   const r2=M.creditAway(isl,48*3600*1000);
-  ok(r2.capped&&r2.items.wood===M.AWAY_CAP_S,'capped at 8 hours ('+r2.items.wood+')');
-  const fresh=testIsland();
-  const r3=M.creditAway(fresh,3600*1000);
-  ok(r3&&!Object.keys(r3.items).length,'nothing built, nothing credited');
-  // the history fills while you play
+  ok(r2.capped&&r2.hours===8&&r2.items.wood===8*3600,'capped at 8 hours');
+  isl.up.robot=1;
+  ok(M.creditAway(isl,48*3600*1000).items.wood===12*3600,'Night shift I: 12 hours');
   const isl2=testIsland();
-  for(let x=24;x<30;x++) M.place(isl2,'belt',x,31,0);
-  for(let i=0;i<M.TPS*M.HIST_BUCKET_S*3;i++){ if(i%20===0) M.give(isl2,M.at(isl2,24,31),'wood',isl2.tick,23,31); M.step(isl2); }
-  ok(isl2.hist.length===3,'history buckets ('+isl2.hist.length+')');
+  for(let x=R-6;x<R;x++) M.place(isl2,'belt',x,R+1,0);
+  for(let i=0;i<M.TPS*M.HIST_BUCKET_S*3;i++){ if(i%20===0) M.give(isl2,M.at(isl2,R-6,R+1),'wood',isl2.tick,R-7,R+1); M.step(isl2); }
+  ok(isl2.hist.length===3,'history buckets');
   const rate=M.rateOf(isl2,'wood');
   ok(rate>0.8&&rate<=1,'measured rate about 1 a second ('+rate.toFixed(2)+')');
+}
+
+/* ---- version-1 saves ---- */
+{
+  const v1={v:1,seed:4242,name:'Old',tick:500,store:{wood:3},got:{wood:40,stone:30},goal:1,free:{drill:1,belt:10},seen:Date.now(),nid:9,cam:{x:31,y:32,z:40},
+    b:[{i:1,t:'rocket',x:30,y:30,r:0},{i:2,t:'drill',x:26,y:27,r:0,out:{wood:2}},{i:3,t:'belt',x:28,y:27,r:0,it:[{k:'wood',p:0.5}]},
+       {i:4,t:'furnace',x:24,y:24,r:0,in:{iron:2},out:{ironbar:1}},{i:5,t:'workshop',x:26,y:20,r:0,free:1},
+       {i:6,t:'assembler',x:10,y:30,r:1,cr:'motor',p:10}]};
+  const isl=M.unpackIsland(v1);
+  ok(isl.v===2&&isl.mapv===1,'old islands keep their map');
+  ok(isl.b.length===3&&M.at(isl,R+1,R+1).t==='rocket','old furnaces, workshops and assemblers are taken away');
+  ok(M.at(isl,42,43)&&M.at(isl,42,43).t==='drill'&&M.at(isl,44,43).t==='belt'&&M.at(isl,44,43).it.length===1,'drills and belts move to the middle with everything on them');
+  ok(isl.store.stone===20&&isl.store.wood===3+10&&isl.store.iron===2&&isl.store.ironbar===1+20&&isl.store.gear===10+2&&isl.store.wire===20+4,
+    'their cost and contents go back into the rocket ('+JSON.stringify(isl.store)+')');
+  ok(isl.free.workshop===1,'a free one comes back free');
+  ok(isl.ev.length===1&&isl.ev[0].migrated,'and the screen is told');
+  ok(isl.cam.x===47,'the view moves with them');
+  const again=M.unpackIsland(JSON.parse(JSON.stringify(M.packIsland(isl))));
+  ok(again.b.length===3&&!again.ev.length&&again.mapv===1&&M.at(again,44,43),'it only happens once');
+  ok(M.newIsland(5,'New').mapv===2,'new islands get the new map');
 }
 
 /* ---- saving and save codes ---- */
 (async function(){
   const isl=testIsland();
-  for(const [x,y] of [[20,30],[21,30],[20,31],[21,31]]) isl.map.res[y*N+x]=1;
-  M.place(isl,'drill',20,30,0);
-  for(let x=22;x<30;x++) M.place(isl,'belt',x,30,0);
-  isl.goal=4; isl.store={gear:20,wire:30,ironbar:30};
-  const asm=M.place(isl,'assembler',10,32,1); M.setRecipe(isl,asm,'frame');
+  for(const [x,y] of [[R-10,R],[R-9,R],[R-10,R+1],[R-9,R+1]]) isl.map.res[y*N+x]=1;
+  M.place(isl,'drill',R-10,R,0);
+  for(let x=R-8;x<R;x++) M.place(isl,'belt',x,R,0);
+  isl.goal=4; isl.store={gear:20,wire:30,ironbar:30}; isl.up={belt:1};
+  const asm=M.place(isl,'assembler',R-20,R+2,1); M.setRecipe(isl,asm,'frame');
   run(isl,333);
-  // the map isn't saved, so the copy needs the same flat strip
   const copy=M.unpackIsland(JSON.parse(JSON.stringify(M.packIsland(isl))));
-  for(let y=26;y<=37;y++) for(let x=6;x<30;x++){ copy.map.ground[y*N+x]=2; copy.map.res[y*N+x]=isl.map.res[y*N+x]; }
+  for(let y=SY0;y<=SY1;y++) for(let x=SX0;x<=SX1;x++){ copy.map.ground[y*N+x]=2; copy.map.res[y*N+x]=isl.map.res[y*N+x]; }
   copy.b.filter(b=>b.t==='drill').forEach(b=>{ b.res='wood'; b.cov=4; });
   ok(copy.b.length===isl.b.length,'same buildings after loading ('+copy.b.length+')');
-  ok(JSON.stringify(copy.store)===JSON.stringify(isl.store)&&copy.goal===isl.goal,'same storage and goal');
-  ok(M.at(copy,10,32).rc==='frame'&&M.at(copy,10,32).r===1,'recipes and turns kept');
+  ok(JSON.stringify(copy.store)===JSON.stringify(isl.store)&&copy.goal===isl.goal&&copy.up.belt===1,'same storage, goal and upgrades');
+  const ca=M.at(copy,R-20,R+2);
+  ok(ca.rc==='frame'&&ca.r===1&&ca.w===2&&M.at(copy,R-19,R+2)===ca,'recipes, turns and sizes kept');
   const items=s=>s.b.filter(b=>b.t==='belt').map(b=>b.it.map(q=>q.k+q.p.toFixed(2)).join()).join('|');
   ok(items(copy)===items(isl),'items on belts kept');
   run(isl,200); run(copy,200);
   ok(JSON.stringify(copy.got)===JSON.stringify(isl.got)&&items(copy)===items(isl),'and the copy keeps running the same way');
-  // broken saves are mended, not fatal
-  const bad=M.unpackIsland({seed:5,b:[{t:'laser',x:1,y:1},{t:'belt',x:0,y:0,r:0},null,{t:'belt',i:7,x:31,y:31}]});
+  const bad=M.unpackIsland({v:2,seed:5,b:[{t:'laser',x:1,y:1},{t:'belt',x:0,y:0,r:0},null,{t:'belt',i:7,x:R+1,y:R+1}]});
   ok(bad.b.length===1&&bad.b[0].t==='rocket','unknown, watery and overlapping buildings are dropped');
   let threw=false; try{ M.unpackIsland({b:[]}); }catch(e){ threw=true; }
   ok(threw,'a save with no seed is refused');
@@ -234,16 +318,17 @@ const run=(isl,n)=>{ for(let i=0;i<n;i++) M.step(isl); };
   M.heal();
   const D=M.getData();
   ok(D.readers.length===2&&D.readers.every(p=>p.id&&p.color),'seeded players get ids');
-  ok(D.islands&&typeof D.islands==='object','islands healed');
   const fiona=D.readers[0].id;
   M.openIsland(fiona);
-  const fam=M.openIsland(M.FAMILY);
-  ok(fam===null,'a brand-new island has no time away');
+  ok(M.openIsland(M.FAMILY)===null,'a brand-new island has no time away');
   M.openIsland(fiona);
   const saved=JSON.parse(M.blob());
   ok(saved.v===1&&saved.islands[fiona]&&saved.islands[M.FAMILY]&&saved.last===fiona,'each player has an island, plus the family one');
   ok(saved.islands[M.FAMILY].seed===20261126&&saved.islands[fiona].seed!==20261126,'family island has its own map');
   ok(!('map' in saved.islands[fiona])&&!('occ' in saved.islands[fiona]),'maps aren’t saved (rebuilt from the seed)');
+  M.getISL().goal=3;
+  const fresh=M.restartIsland();
+  ok(fresh.goal===0&&fresh.mapv===2&&M.getData().islands[fiona].goal===0,'starting over makes a new island');
   ok(/const KEY='robotisland:v1'/.test(html)&&/JSON\.stringify\(\{v:1,/.test(html)&&/const COLORS=\[/.test(html),'the chore board can seed players');
   ok((html.match(/<script>/g)||[]).length===1,'one script tag');
 
