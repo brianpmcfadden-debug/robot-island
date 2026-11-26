@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Robot Island</title>
+<meta name="theme-color" content="#0E3A5C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Robot Island">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230E3A5C'/><text x='50' y='72' font-size='60' text-anchor='middle'>🤖</text></svg>">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap">
+<style>
+:root{
+  --sea:#0E3A5C; --sea-deep:#082640; --panel:rgba(8,30,52,.88); --panel-solid:#0F3354; --line:rgba(255,255,255,.14);
+  --gold:#FFCB2E; --go:#2FE39B; --bad:#FF6B6B; --ink:#10233A; --muted:#A9C2DA; --card:#FFF6E9;
+  --display:'Bungee','Impact',system-ui,sans-serif;
+  --read:'Lexend','Trebuchet MS',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{font-family:var(--read);background:var(--sea-deep);color:#fff;overflow:hidden;
+  overscroll-behavior:none;user-select:none;-webkit-user-select:none}
+#app{position:fixed;inset:0}
+button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+#world{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;background:#145A8A}
+
+/* ---------- game HUD ---------- */
+#hud{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;
+  padding:max(8px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom))}
+#hud>*{pointer-events:auto}
+#top{display:flex;gap:8px;align-items:stretch}
+.chip{display:flex;align-items:center;gap:8px;background:var(--panel);border-radius:14px;padding:8px 12px;
+  font-weight:700;font-size:15px;box-shadow:0 3px 0 rgba(0,0,0,.3);flex:none;max-width:40%}
+.chip .dot{width:14px;height:14px;border-radius:50%;flex:none}
+.chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#goal{flex:1;min-width:0;background:var(--panel);border-radius:14px;padding:7px 12px;text-align:left;
+  box-shadow:0 3px 0 rgba(0,0,0,.3)}
+.goal-head{display:flex;gap:8px;align-items:baseline;white-space:nowrap;overflow:hidden}
+.goal-num{font-family:var(--display);font-size:11px;letter-spacing:.08em;color:var(--gold);flex:none}
+.goal-title{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis}
+.needs{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+.need{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:700}
+.need .bar{width:54px;height:7px;border-radius:4px;background:rgba(255,255,255,.18);overflow:hidden}
+.need .bar i{display:block;height:100%;background:var(--go)}
+.need.done{color:var(--go)}
+#goal.launch{background:linear-gradient(90deg,#FF8A2B,#FFCB2E);color:var(--ink);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{transform:scale(1.02)}}
+#store{display:flex;gap:6px;margin-top:6px;overflow-x:auto;scrollbar-width:none;align-self:flex-start;max-width:100%}
+#store::-webkit-scrollbar{display:none}
+#store:empty{display:none}
+.sto{display:flex;align-items:center;gap:3px;background:var(--panel);border-radius:10px;padding:3px 8px;
+  font-size:13px;font-weight:700;flex:none}
+.ic{display:inline-block;width:1.25em;height:1.25em;line-height:1.25em;text-align:center;vertical-align:-.25em;
+  font-family:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',sans-serif;font-style:normal;position:relative}
+img.ic{object-fit:contain}
+.ic .bd{position:absolute;right:-.25em;bottom:-.2em;font-size:.6em;line-height:1}
+#hud>.spacer{flex:1;pointer-events:none}
+#toast{align-self:center;background:var(--card);color:var(--ink);font-weight:700;font-size:15px;border-radius:14px;
+  padding:10px 16px;max-width:92%;text-align:center;box-shadow:0 4px 0 rgba(0,0,0,.3);margin-bottom:8px;
+  opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;pointer-events:none}
+#toast.on{opacity:1;transform:none}
+#modeBar{display:none;align-items:center;gap:8px;background:var(--panel);border-radius:14px;padding:6px 6px 6px 12px;
+  margin-bottom:8px;font-size:14px}
+#modeBar.on{display:flex}
+#modeText{flex:1;line-height:1.3}
+.mbtn{background:rgba(255,255,255,.14);border-radius:12px;padding:10px 14px;font-weight:700;font-size:15px;white-space:nowrap}
+.mbtn.go{background:var(--go);color:var(--ink)}
+#tools{display:flex;gap:6px;background:var(--panel);border-radius:18px;padding:6px;box-shadow:0 3px 0 rgba(0,0,0,.3)}
+.tool{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;border-radius:13px;padding:6px 2px 5px;
+  background:rgba(255,255,255,.07);position:relative}
+.tool .te{font-size:26px;line-height:1.15;font-family:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',sans-serif}
+.tool .tn{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tool .tc{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;max-width:100%;height:14px}
+.tool.on{background:var(--gold);color:var(--ink)}
+.tool.on .tc{color:var(--ink)}
+.tool.locked{opacity:.45}
+.tool.locked .te{filter:grayscale(1)}
+.tool .lk{position:absolute;top:2px;right:4px;font-size:13px}
+.tool.short .tc{color:var(--bad)}
+.tool.on.short .tc{color:#9A1B1B}
+
+/* ---------- the inspect sheet ---------- */
+.sheet{position:absolute;left:8px;right:8px;bottom:8px;background:var(--panel-solid);border-radius:20px;padding:14px;
+  box-shadow:0 -4px 24px rgba(0,0,0,.4);transform:translateY(120%);transition:transform .22s;max-height:62%;overflow-y:auto;
+  margin-bottom:env(safe-area-inset-bottom)}
+.sheet.on{transform:none}
+.sh-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.sh-head .big{font-size:34px;line-height:1}
+.sh-head h2{font-family:var(--display);font-size:18px;letter-spacing:.03em;flex:1;font-weight:400}
+.x{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.12);font-size:20px;flex:none}
+.sh-line{font-size:15px;line-height:1.45;margin:4px 0;color:#E4EEF7}
+.sh-line b{color:#fff}
+.sh-status{font-weight:700;margin:8px 0;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.08);font-size:15px}
+.sh-status.ok{color:var(--go)} .sh-status.wait{color:var(--gold)}
+.recipes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:8px 0}
+.rcp{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;background:rgba(255,255,255,.08);border-radius:12px;padding:10px 8px;
+  font-size:15px;font-weight:700;min-height:54px;border:2px solid transparent}
+.rcp.on{border-color:var(--gold);background:rgba(255,203,46,.16)}
+.rcp .arrow{color:var(--muted)}
+.rcp .rn{width:100%;text-align:center;font-size:12px;color:var(--muted);font-weight:400}
+.sh-btns{display:flex;gap:8px;margin-top:10px}
+.sh-btns .mbtn{flex:1;padding:13px}
+.grid-items{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+
+/* ---------- screens and pop-ups ---------- */
+.screen{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;overflow-y:auto;
+  padding:max(20px,env(safe-area-inset-top)) 16px max(20px,env(safe-area-inset-bottom));
+  background:radial-gradient(120% 70% at 50% -10%,#1C6A9C 0%,var(--sea) 50%,var(--sea-deep) 100%)}
+.screen.on{display:flex}
+.title{font-family:var(--display);font-size:34px;letter-spacing:.03em;text-align:center;margin-top:10px;line-height:1.1;font-weight:400}
+.title .robot{display:block;font-size:72px;margin-bottom:6px;animation:bob 2.4s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-8px) rotate(-4deg)}}
+.sub{color:var(--muted);text-align:center;margin:8px 0 18px;font-size:16px;max-width:420px}
+.roster{width:100%;max-width:460px;display:flex;flex-direction:column;gap:10px}
+.who{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.1);border-radius:18px;padding:14px 16px;text-align:left;
+  box-shadow:0 4px 0 rgba(0,0,0,.3)}
+.who:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.3)}
+.who .av{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font-size:26px;flex:none}
+.who .nm{font-weight:700;font-size:19px}
+.who .pg{color:var(--muted);font-size:13px;margin-top:2px}
+.who.family{background:linear-gradient(90deg,rgba(47,227,155,.22),rgba(47,217,232,.18))}
+.addp{margin-top:6px;background:transparent;box-shadow:inset 0 0 0 2px rgba(255,255,255,.25);justify-content:center;font-weight:700;color:var(--muted)}
+.addform{display:none;flex-direction:column;gap:10px;background:rgba(255,255,255,.08);border-radius:18px;padding:14px}
+.addform.on{display:flex}
+.addform input,.modal textarea{font:inherit;font-size:18px;border-radius:12px;border:2px solid var(--line);background:rgba(0,0,0,.25);color:#fff;padding:12px;width:100%;user-select:text;-webkit-user-select:text}
+.swatches{display:flex;gap:10px;justify-content:center}
+.sw{width:38px;height:38px;border-radius:50%;border:3px solid transparent}
+.sw.on{border-color:#fff}
+.btn{font-family:var(--display);font-size:16px;letter-spacing:.04em;border-radius:16px;padding:15px 18px;background:var(--gold);color:var(--ink);
+  box-shadow:0 5px 0 rgba(0,0,0,.35);width:100%;font-weight:400}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 rgba(0,0,0,.35)}
+.btn.ghost{background:rgba(255,255,255,.1);color:#fff;box-shadow:none;font-family:var(--read);font-weight:700;letter-spacing:0}
+.btn.go{background:var(--go)}
+.note{color:var(--muted);font-size:12px;text-align:center;margin-top:16px;max-width:420px}
+.modal{position:absolute;inset:0;background:rgba(4,16,30,.7);display:none;align-items:center;justify-content:center;padding:16px}
+.modal.on{display:flex}
+.modal-card{background:var(--panel-solid);border-radius:22px;padding:20px;width:100%;max-width:440px;max-height:90%;overflow-y:auto;
+  display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.modal-card h2{font-family:var(--display);font-size:22px;text-align:center;font-weight:400;letter-spacing:.03em}
+.modal-card p{font-size:16px;line-height:1.45;color:#E4EEF7}
+.modal-card .big{font-size:64px;text-align:center;line-height:1.1}
+.modal textarea{font-size:12px;height:110px;resize:none;font-family:monospace;word-break:break-all}
+.helpsteps{display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.4}
+.helpsteps div{background:rgba(255,255,255,.07);border-radius:12px;padding:9px 11px}
+.goal-list{display:flex;flex-direction:column;gap:6px}
+.goal-list div{display:flex;gap:8px;align-items:center;font-size:14px;background:rgba(255,255,255,.06);border-radius:10px;padding:7px 10px}
+.goal-list .done{color:var(--go)} .goal-list .now{outline:2px solid var(--gold)}
+.fly{animation:fly 2.2s ease-in forwards}
+@keyframes fly{0%{transform:translateY(0)}15%{transform:translateY(6px) rotate(-3deg)}30%{transform:translateY(0) rotate(3deg)}100%{transform:translateY(-120vh)}}
+.confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.confetti i{position:absolute;top:-20px;width:10px;height:14px;border-radius:2px;animation:fall 1.8s linear forwards}
+@keyframes fall{to{transform:translateY(110vh) rotate(540deg)}}
+
+@media (max-width:420px){
+  .tool .te{font-size:22px}
+  .tool .tn{font-size:9.5px;letter-spacing:-.02em}
+  .tool .tc{font-size:9px;letter-spacing:-.03em}
+  #tools{gap:4px;padding:5px}
+  .chip{padding:8px 10px;font-size:14px}
+  .goal-title{font-size:14px}
+}
+@media (min-width:700px){
+  #tools{align-self:center;width:640px}
+  #modeBar{align-self:center;width:640px}
+  .sheet{left:50%;right:auto;width:560px;margin-left:-280px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="world"></canvas>
+  <div id="hud">
+    <div id="top">
+      <button id="who" class="chip" aria-label="Menu"><span class="dot" id="whoDot"></span><span class="nm" id="whoName"></span><span>☰</span></button>
+      <button id="goal"></button>
+    </div>
+    <div id="store"></div>
+    <div class="spacer"></div>
+    <div id="toast"></div>
+    <div id="modeBar"><span id="modeText"></span><button class="mbtn" id="rotBtn">↻ Turn</button><button class="mbtn go" id="doneBtn">✓ Done</button></div>
+    <div id="tools"></div>
+  </div>
+  <div id="sheet" class="sheet"></div>
+
+  <div id="pick" class="screen on">
+    <h1 class="title"><span class="robot">🤖</span>Robot Island</h1>
+    <p class="sub">The robot’s rocket crashed! Build a factory to make the parts and fly it home.</p>
+    <div class="roster" id="roster"></div>
+    <p class="note" id="saveNote"></p>
+  </div>
+
+  <div id="modal" class="modal"><div class="modal-card" id="modalCard"></div></div>
+  <div class="confetti" id="confetti"></div>
+</div>
+<script>
+/* ================================================================
+   ROBOT ISLAND — a little robot crash-lands and builds a factory to fix its rocket.
+   Everything to tune (costs, recipes, goals, speeds) is in the tables right here.
+   ================================================================ */
+const KEY='robotisland:v1';
+const COLORS=['#2FD9E8','#FF5C8A','#FFCB2E','#2FE39B','#FF8A2B','#B57BFF'];
+const N=64;                       // the island map is N×N squares
+const TPS=20, TICK_MS=1000/TPS;   // the factory runs 20 steps a second
+const ROCKET={x:30,y:30};         // top-left of the 4×4 rocket, in the middle of the map
+const BELT_SPEED=0.1;             // squares per step (2 squares a second)
+const GAP=1/3, BELT_MAX=3;        // items on a belt square: at most 3, a third of a square apart
+const DRILL_T=[0,60,40,28,20];    // steps per item, by how many resource squares a drill covers
+const OUT_MAX=6;                  // a machine holds this many finished items before it waits
+const AWAY_CAP_S=8*3600, AWAY_MIN_S=30;  // time away is credited up to 8 hours
+const HIST_BUCKET_S=10, HIST_LEN=30;     // the rocket's intake over the last 5 minutes (30 × 10 s)
+const FAMILY='family', FAMILY_SEED=20261126;
+const DX=[1,0,-1,0], DY=[0,1,0,-1];      // directions: 0 east, 1 south, 2 west, 3 north
+const RES=['','wood','stone','iron','copper'];
+
+// Items. Emoji ones draw as emoji; the others are drawn shapes (ore lumps, bars, planks, plates).
+const ITEMS={
+  wood:{name:'Wood',e:'🪵'},
+  stone:{name:'Stone',e:'🪨'},
+  iron:{name:'Iron ore',draw:'ore',c:'#9FB4CC'},
+  copper:{name:'Copper ore',draw:'ore',c:'#E8843C'},
+  ironbar:{name:'Iron bar',draw:'bar',c:'#D5DEE8'},
+  copperbar:{name:'Copper bar',draw:'bar',c:'#F0A266'},
+  brick:{name:'Brick',e:'🧱'},
+  plank:{name:'Plank',draw:'plank',c:'#D9A066'},
+  gear:{name:'Gear',e:'⚙️'},
+  wire:{name:'Wire',e:'🔌'},
+  plate:{name:'Plate',draw:'plate',c:'#B9C6D3'},
+  motor:{name:'Motor',e:'⚙️',badge:'⚡'},
+  chip:{name:'Chip',e:'💾'},
+  frame:{name:'Frame',e:'🪟'},
+  shield:{name:'Heat shield',e:'🛡️'},
+  engine:{name:'Rocket engine',e:'🔥',badge:'🚀'},
+  hull:{name:'Rocket hull',e:'🛰️'},
+};
+const ITEM_ORDER=Object.keys(ITEMS);
+
+const BUILD={
+  belt:{name:'Belt',e:'➡️',size:1,cost:{wood:1}},
+  drill:{name:'Drill',e:'⛏️',size:2,cost:{wood:5,stone:5},color:'#5E6E86'},
+  furnace:{name:'Furnace',e:'🔥',size:2,cost:{stone:20,wood:10},color:'#B4553F'},
+  workshop:{name:'Workshop',e:'🛠️',size:2,cost:{wood:20,ironbar:15},color:'#8C6A3E'},
+  assembler:{name:'Assembler',e:'🏭',size:3,cost:{gear:10,wire:20,ironbar:20},color:'#4D5DA6'},
+  rocket:{name:'Rocket',e:'🚀',size:4,cost:{},color:'#DDE5EE'},
+};
+const TOOLS=['belt','drill','furnace','workshop','assembler'];
+
+// Recipes: t is steps (20 = 1 second). A furnace melts whatever comes in; workshops and assemblers make
+// the one thing they're set to.
+const RECIPES={
+  furnace:[
+    {id:'ironbar',in:{iron:1},out:'ironbar',n:1,t:30},
+    {id:'copperbar',in:{copper:1},out:'copperbar',n:1,t:30},
+    {id:'brick',in:{stone:2},out:'brick',n:1,t:30},
+  ],
+  workshop:[
+    {id:'plank',in:{wood:2},out:'plank',n:1,t:30},
+    {id:'gear',in:{ironbar:2},out:'gear',n:1,t:40},
+    {id:'wire',in:{copperbar:1},out:'wire',n:2,t:30},
+    {id:'plate',in:{ironbar:2},out:'plate',n:1,t:40},
+  ],
+  assembler:[
+    {id:'motor',in:{gear:2,wire:4},out:'motor',n:1,t:60},
+    {id:'chip',in:{wire:4,copperbar:2},out:'chip',n:1,t:60},
+    {id:'frame',in:{plank:4,plate:2},out:'frame',n:1,t:60},
+    {id:'shield',in:{brick:4,plate:2},out:'shield',n:1,t:60},
+    {id:'engine',in:{motor:2,chip:2},out:'engine',n:1,t:80},
+    {id:'hull',in:{frame:2,shield:2},out:'hull',n:1,t:80},
+  ],
+};
+
+// The rocket repair list. Goals count everything that has ever reached the rocket. Each finished goal
+// also gives some free belts.
+const GOALS=[
+  {title:'Wood and stone', need:{wood:30,stone:30}, unlock:'furnace',
+   hint:'Pick ⛏️ Drill and put it on trees 🌲. Then pick ➡️ Belt and drag from the drill to the rocket 🚀. Do the same with rocks 🪨.'},
+  {title:'Iron bars', need:{ironbar:25}, unlock:'workshop',
+   hint:'Put a drill on the blue-gray iron rocks. Belt the ore into a 🔥 Furnace, then belt the bars from the furnace’s arrow to the rocket.'},
+  {title:'Gears and planks', need:{gear:15,plank:20},
+   hint:'Build a 🛠️ Workshop and tap it to choose what it makes. Gears need iron bars. Planks need wood.'},
+  {title:'Copper and wire', need:{copperbar:20,wire:40}, unlock:'assembler',
+   hint:'Drill the orange copper rocks and melt them in a 🔥 Furnace. A 🛠️ Workshop set to Wire turns each copper bar into 2 wires.'},
+  {title:'Motors', need:{motor:10},
+   hint:'Build a 🏭 Assembler and set it to Motor. It needs gears AND wire, so bring in two belts from different sides.'},
+  {title:'Chips', need:{chip:10},
+   hint:'Set an Assembler to Chip. Chips need wire and copper bars.'},
+  {title:'Frames and heat shields', need:{frame:8,shield:8},
+   hint:'Frames need planks and plates. Heat shields need bricks and plates. A Furnace makes bricks from stone, and a Workshop makes plates from iron bars.'},
+  {title:'Rocket parts', need:{engine:4,hull:4},
+   hint:'The last step! An Assembler makes a rocket engine from motors and chips, and a hull from frames and heat shields.'},
+];
+const GOAL_GIFT={belt:20};
+
+/* ---------------- random numbers and the map ---------------- */
+function rng(seed){
+  let a=seed>>>0;
+  return function(){ a=(a+0x6D2B79F5)>>>0; let t=a; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; };
+}
+function noise2(seed){   // smooth value noise
+  const r=rng(seed), G=17, g=new Float32Array(G*G);
+  for(let i=0;i<g.length;i++) g[i]=r();
+  const at=(i,j)=>g[(((j%G)+G)%G)*G+(((i%G)+G)%G)];
+  const s=t=>t*t*(3-2*t);
+  return function(x,y){
+    const xi=Math.floor(x), yi=Math.floor(y), u=s(x-xi), v=s(y-yi);
+    const a=at(xi,yi), b=at(xi+1,yi), c=at(xi,yi+1), d=at(xi+1,yi+1);
+    return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
+  };
+}
+
+// ground: 0 water, 1 sand, 2 grass. res: an index into RES. The same seed always makes the same island.
+function genMap(seed){
+  const r=rng(seed*7919+13), nz=noise2(seed+101), nz2=noise2(seed+202), nz3=noise2(seed+303);
+  const ground=new Uint8Array(N*N), res=new Uint8Array(N*N);
+  const C=N/2;
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    if(x<2||y<2||x>N-3||y>N-3) continue;
+    const dx=(x+0.5-C)/C, dy=(y+0.5-C)/C, d=Math.sqrt(dx*dx+dy*dy);
+    const n=nz(x/7,y/7)*0.65+nz2(x/3,y/3)*0.35;
+    if(d<0.34 || d<0.8+(n-0.5)*0.5) ground[y*N+x]=2;
+  }
+  // Keep only the land joined to the rocket, then put sand along the shore.
+  const keep=new Uint8Array(N*N), stack=[C*N+C];
+  keep[C*N+C]=1;
+  while(stack.length){
+    const i=stack.pop(), x=i%N, y=(i-x)/N;
+    for(let d=0;d<4;d++){ const j=(y+DY[d])*N+x+DX[d]; if(ground[j]&&!keep[j]){ keep[j]=1; stack.push(j); } }
+  }
+  for(let i=0;i<N*N;i++) if(!keep[i]) ground[i]=0;
+  for(let y=1;y<N-1;y++) for(let x=1;x<N-1;x++){
+    const i=y*N+x; if(!ground[i]) continue;
+    for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) if(!ground[i+yy*N+xx]) ground[i]=1;
+  }
+  // Resource patches: [type, how many, nearest, farthest] (distance from the rocket in squares).
+  const plan=[[1,2,6,10],[2,1,7,11],[3,1,8,12],[4,1,10,14],[1,2,12,21],[2,2,12,21],[3,2,13,22],[4,2,13,22]];
+  const nearRocket=(x,y)=>x>=ROCKET.x-1&&x<=ROCKET.x+4&&y>=ROCKET.y-1&&y<=ROCKET.y+4;
+  for(const [type,count,dmin,dmax] of plan){
+    for(let k=0;k<count;k++){
+      for(let tries=0;tries<60;tries++){
+        const ang=r()*Math.PI*2, dist=dmin+r()*(dmax-dmin), rad=2+r()*1.4;
+        const px=C+Math.cos(ang)*dist, py=C+Math.sin(ang)*dist;
+        const got=[];
+        for(let y=Math.floor(py-5);y<=py+5;y++) for(let x=Math.floor(px-5);x<=px+5;x++){
+          if(x<0||y<0||x>=N||y>=N) continue;
+          const i=y*N+x, dd=Math.hypot(x+0.5-px,y+0.5-py);
+          if(dd<rad*(0.75+0.5*nz3(x/2.3+type*9,y/2.3)) && ground[i]===2 && !res[i] && !nearRocket(x,y)) got.push(i);
+        }
+        if(got.length>=7){ got.forEach(i=>{res[i]=type}); break; }
+      }
+    }
+  }
+  return {ground,res};
+}
+
+/* ---------------- islands ---------------- */
+const count=o=>{ let n=0; for(const k in o) n+=o[k]; return n; };
+const add=(o,k,n)=>{ o[k]=(o[k]||0)+n; };
+const has=(o,need)=>Object.keys(need).every(k=>(o[k]||0)>=need[k]);
+const size=b=>BUILD[b.t].size;
+const recipe=(type,id)=>(RECIPES[type]||[]).filter(r=>r.id===id)[0]||null;
+const inMap=(x,y)=>x>=0&&y>=0&&x<N&&y<N;
+
+function newIsland(seed,name){
+  return prepare({v:1,seed:seed>>>0,name:name||'',tick:0,store:{},got:{},goal:0,free:{drill:4,belt:40},
+    hist:[],cur:{},seen:Date.now(),nid:1,b:[],cam:null,launched:false});
+}
+
+// Runtime pieces that are never saved: the map (from the seed), the square → building index, and the
+// event list the screen reads (finished goals).
+function prepare(isl){
+  isl.store=isl.store||{}; isl.got=isl.got||{}; isl.free=Object.assign({drill:0,belt:0},isl.free||{});
+  isl.hist=Array.isArray(isl.hist)?isl.hist.slice(-HIST_LEN):[]; isl.cur=isl.cur||{};
+  isl.goal=Math.min(GOALS.length,Math.max(0,isl.goal|0)); isl.tick=isl.tick|0; isl.nid=isl.nid||1;
+  if(typeof isl.seen!=='number') isl.seen=Date.now();
+  Object.defineProperty(isl,'map',{value:genMap(isl.seed),writable:true,enumerable:false,configurable:true});
+  Object.defineProperty(isl,'occ',{value:new Int32Array(N*N),writable:true,enumerable:false,configurable:true});
+  Object.defineProperty(isl,'byId',{value:new Map(),writable:true,enumerable:false,configurable:true});
+  Object.defineProperty(isl,'ev',{value:[],writable:true,enumerable:false,configurable:true});
+  const list=Array.isArray(isl.b)?isl.b:[];
+  isl.b=[];
+  for(const raw of list) if(raw&&raw.i>=isl.nid) isl.nid=raw.i+1;
+  if(!list.some(b=>b&&b.t==='rocket')) list.unshift({t:'rocket',x:ROCKET.x,y:ROCKET.y,r:0});
+  for(const raw of list){   // anything broken or overlapping is dropped
+    if(!raw||!BUILD[raw.t]) continue;
+    const b={i:raw.i||isl.nid++,t:raw.t,x:raw.x|0,y:raw.y|0,r:((raw.r|0)%4+4)%4,rc:raw.rc||null,free:!!raw.free,
+      in:raw.in||{},out:raw.out||{},p:raw.p|0,cr:raw.cr||null,o:0,it:[]};
+    if(b.t==='belt') b.it=(raw.it||[]).slice(0,BELT_MAX).filter(q=>q&&ITEMS[q.k]).map(q=>({k:q.k,p:Math.max(0,Math.min(1,+q.p||0)),m:-1}));
+    if(b.rc&&!recipe(b.t,b.rc)) b.rc=null;
+    if(b.cr&&!recipe(b.t,b.cr)) b.cr=null;
+    if(!fits(isl,b.t,b.x,b.y)) continue;
+    if(isl.byId.has(b.i)) b.i=isl.nid++;
+    index(isl,b);
+  }
+  return isl;
+}
+
+function index(isl,b){
+  const s=size(b);
+  for(let y=b.y;y<b.y+s;y++) for(let x=b.x;x<b.x+s;x++) isl.occ[y*N+x]=b.i;
+  isl.byId.set(b.i,b); isl.b.push(b);
+  if(b.t==='drill') drillInfo(isl,b);
+  isl.changed=true;
+}
+function unindex(isl,b){
+  const s=size(b);
+  for(let y=b.y;y<b.y+s;y++) for(let x=b.x;x<b.x+s;x++) isl.occ[y*N+x]=0;
+  isl.byId.delete(b.i); isl.b.splice(isl.b.indexOf(b),1);
+  isl.changed=true;
+}
+function at(isl,x,y){ return inMap(x,y)?isl.byId.get(isl.occ[y*N+x])||null:null; }
+
+// A drill mines whichever resource covers most of its squares.
+function drillInfo(isl,b){
+  const tally=[0,0,0,0,0];
+  for(let y=b.y;y<b.y+2;y++) for(let x=b.x;x<b.x+2;x++) if(inMap(x,y)) tally[isl.map.res[y*N+x]]++;
+  let best=0; for(let k=1;k<5;k++) if(tally[k]>tally[best]||best===0&&tally[k]) best=k;
+  b.res=best?RES[best]:null; b.cov=best?tally[best]:0;
+  return b;
+}
+
+function unlocked(isl,type){
+  const g=GOALS.findIndex(x=>x.unlock===type);
+  return g<0 ? type!=='rocket' : isl.goal>g;
+}
+function unlockGoal(type){ return GOALS.findIndex(x=>x.unlock===type); }
+
+function fits(isl,type,x,y){
+  const s=BUILD[type].size;
+  for(let yy=y;yy<y+s;yy++) for(let xx=x;xx<x+s;xx++){
+    if(!inMap(xx,yy)||!isl.map.ground[yy*N+xx]||isl.occ[yy*N+xx]) return false;
+  }
+  return true;
+}
+// Why something can't go here (or null when it can).
+function placeProblem(isl,type,x,y){
+  if(!unlocked(isl,type)) return 'locked';
+  if(!fits(isl,type,x,y)) return 'blocked';
+  if(type==='drill'&&!drillInfo(isl,{x,y}).cov) return 'nores';
+  if(!(isl.free[type]>0)&&!has(isl.store,BUILD[type].cost)) return 'cost';
+  return null;
+}
+function missing(isl,type){   // what's short for one more of these: {item: how many}
+  const out={}, cost=BUILD[type].cost;
+  if(isl.free[type]>0) return out;
+  for(const k in cost){ const n=cost[k]-(isl.store[k]||0); if(n>0) out[k]=n; }
+  return out;
+}
+
+function place(isl,type,x,y,r){
+  if(placeProblem(isl,type,x,y)) return null;
+  const b={i:isl.nid++,t:type,x,y,r:((r|0)%4+4)%4,rc:null,free:false,in:{},out:{},p:0,cr:null,o:0,it:[]};
+  if(isl.free[type]>0){ isl.free[type]--; b.free=true; }
+  else for(const k in BUILD[type].cost) isl.store[k]-=BUILD[type].cost[k];
+  index(isl,b);
+  return b;
+}
+
+// Taking something away gives everything back: its cost and whatever it was holding.
+function removeB(isl,b){
+  if(!b||b.t==='rocket') return false;
+  if(b.free) isl.free[b.t]=(isl.free[b.t]||0)+1;
+  else for(const k in BUILD[b.t].cost) add(isl.store,k,BUILD[b.t].cost[k]);
+  for(const k in b.in) if(b.in[k]) add(isl.store,k,b.in[k]);
+  for(const k in b.out) if(b.out[k]) add(isl.store,k,b.out[k]);
+  if(b.cr){ const rc=recipe(b.t,b.cr); for(const k in rc.in) add(isl.store,k,rc.in[k]); }
+  for(const q of b.it) add(isl.store,q.k,1);
+  unindex(isl,b);
+  return true;
+}
+
+// Picking a new recipe hands back whatever the machine was holding for the old one.
+function setRecipe(isl,b,id){
+  if(!recipe(b.t,id)||b.rc===id) return;
+  for(const k in b.in) if(b.in[k]) add(isl.store,k,b.in[k]);
+  if(b.cr){ const rc=recipe(b.t,b.cr); for(const k in rc.in) add(isl.store,k,rc.in[k]); }
+  b.in={}; b.cr=null; b.p=0; b.rc=id;
+}
+function turn(isl,b){ if(b.t!=='rocket'){ b.r=(b.r+1)%4; isl.changed=true; } }
+
+// The squares right outside a building's arrow side.
+function outTiles(b){
+  const s=size(b), out=[];
+  for(let k=0;k<s;k++){
+    if(b.r===0) out.push([b.x+s,b.y+k]); else if(b.r===1) out.push([b.x+k,b.y+s]);
+    else if(b.r===2) out.push([b.x-1,b.y+k]); else out.push([b.x+k,b.y-1]);
+  }
+  return out;
+}
+
+function accepts(b,k){
+  if(b.t==='rocket') return true;
+  if(b.t==='furnace') return RECIPES.furnace.some(rc=>rc.in[k]) && (b.in[k]||0)<4;
+  if(b.t==='workshop'||b.t==='assembler'){
+    const rc=recipe(b.t,b.rc); const need=rc&&rc.in[k];
+    return !!need && (b.in[k]||0)<need*2;
+  }
+  return false;
+}
+
+// Hand an item to whatever is at a square. `from` is the square it comes from, so two belts pointing
+// at each other don't pass items back and forth.
+function give(isl,t,k,T,fx,fy){
+  if(t.t==='belt'){
+    if(t.x+DX[t.r]===fx&&t.y+DY[t.r]===fy) return false;
+    const it=t.it;
+    if(it.length>=BELT_MAX||(it.length&&it[it.length-1].p<GAP)) return false;
+    it.push({k,p:0,m:T});
+    return true;
+  }
+  if(!accepts(t,k)) return false;
+  if(t.t==='rocket'){ add(isl.store,k,1); add(isl.got,k,1); add(isl.cur,k,1); return true; }
+  add(t.in,k,1);
+  return true;
+}
+
+function runMachine(isl,b,T){
+  if(b.t==='drill'){
+    if(b.cov&&count(b.out)<4&&++b.p>=DRILL_T[b.cov]){ b.p=0; add(b.out,b.res,1); }
+  } else if(RECIPES[b.t]){
+    if(!b.cr){
+      let rc=null;
+      if(b.t==='furnace'){   // melt whatever there's most of
+        let most=0;
+        for(const x of RECIPES.furnace) if(has(b.in,x.in)&&(b.in[Object.keys(x.in)[0]]>most)){ rc=x; most=b.in[Object.keys(x.in)[0]]; }
+      } else { const x=recipe(b.t,b.rc); if(x&&has(b.in,x.in)) rc=x; }
+      if(rc&&count(b.out)+rc.n<=OUT_MAX){
+        for(const k in rc.in) b.in[k]-=rc.in[k];
+        b.cr=rc.id; b.p=0;
+      }
+    }
+    if(b.cr){
+      const rc=recipe(b.t,b.cr);
+      if(++b.p>=rc.t){ add(b.out,rc.out,rc.n); b.cr=null; b.p=0; }
+    }
+  }
+  if(b.t!=='rocket') pushOut(isl,b,T);
+}
+
+// One item a step goes out of the arrow side: onto a belt, or straight into a building next to it.
+function pushOut(isl,b,T){
+  let k=null;
+  for(const x in b.out) if(b.out[x]>0){ k=x; break; }
+  if(!k) return;
+  const tiles=outTiles(b), s=tiles.length;
+  for(let j=0;j<s;j++){
+    const n=(b.o+j)%s, [x,y]=tiles[n], t=at(isl,x,y);
+    if(!t||t===b) continue;
+    const fx=x-DX[b.r], fy=y-DY[b.r];
+    if(give(isl,t,k,T,fx,fy)){ if(!--b.out[k]) delete b.out[k]; b.o=(n+1)%s; return; }
+  }
+}
+
+function moveBelt(isl,b,T){
+  const it=b.it;
+  if(!it.length) return;
+  for(let k=0;k<it.length;k++){
+    const q=it[k];
+    if(q.m===T) continue;
+    const lim=k===0?1:it[k-1].p-GAP, np=Math.round(Math.min(q.p+BELT_SPEED,lim)*1000)/1000;
+    if(np>q.p) q.p=np;
+  }
+  const q=it[0];
+  if(q.p>=1&&q.m!==T){
+    const t=at(isl,b.x+DX[b.r],b.y+DY[b.r]);
+    if(t&&give(isl,t,q.k,T,b.x,b.y)) it.shift();
+  }
+}
+
+// One step of the whole factory.
+function step(isl){
+  const T=++isl.tick;
+  for(const b of isl.b) if(b.t!=='belt') runMachine(isl,b,T);
+  for(const b of isl.b) if(b.t==='belt') moveBelt(isl,b,T);
+  if(T%(TPS*HIST_BUCKET_S)===0){ isl.hist.push(isl.cur); isl.cur={}; if(isl.hist.length>HIST_LEN) isl.hist.shift(); }
+  if(T%TPS===0) checkGoals(isl);
+}
+
+function checkGoals(isl){
+  while(isl.goal<GOALS.length&&has(isl.got,GOALS[isl.goal].need)){
+    const g=GOALS[isl.goal];
+    isl.goal++;
+    for(const k in GOAL_GIFT) add(isl.free,k,GOAL_GIFT[k]);
+    isl.ev.push({goal:isl.goal-1,unlock:g.unlock||null});
+  }
+}
+
+/* ---------------- while you were away ---------------- */
+// Items a second reaching the rocket, averaged over the last 5 minutes of play.
+function rateOf(isl,k){
+  if(!isl.hist.length) return 0;
+  let n=0; for(const h of isl.hist) n+=h[k]||0;
+  return n/(isl.hist.length*HIST_BUCKET_S);
+}
+function creditAway(isl,ms){
+  const secs=Math.min(ms/1000,AWAY_CAP_S);
+  if(!(secs>=AWAY_MIN_S)) return null;
+  const items={};
+  for(const k of ITEM_ORDER){
+    const n=Math.floor(rateOf(isl,k)*secs);
+    if(n>0){ items[k]=n; add(isl.store,k,n); add(isl.got,k,n); }
+  }
+  checkGoals(isl);
+  return {secs,capped:ms/1000>AWAY_CAP_S,items};
+}
+
+/* ---------------- saving an island ---------------- */
+const nonEmpty=o=>{ for(const k in o) if(o[k]) return true; return false; };
+function packIsland(isl){
+  return {v:1,seed:isl.seed,name:isl.name,tick:isl.tick,store:isl.store,got:isl.got,goal:isl.goal,free:isl.free,
+    hist:isl.hist,cur:isl.cur,seen:isl.seen,nid:isl.nid,cam:isl.cam,launched:!!isl.launched,
+    b:isl.b.map(function(b){
+      const o={i:b.i,t:b.t,x:b.x,y:b.y,r:b.r};
+      if(b.rc) o.rc=b.rc; if(b.free) o.free=1; if(b.p) o.p=b.p; if(b.cr) o.cr=b.cr;
+      if(nonEmpty(b.in)) o.in=b.in; if(nonEmpty(b.out)) o.out=b.out;
+      if(b.it.length) o.it=b.it.map(q=>({k:q.k,p:Math.round(q.p*1000)/1000}));
+      return o;
+    })};
+}
+function unpackIsland(o){
+  if(!o||typeof o!=='object'||!Number.isFinite(o.seed)) throw new Error('That isn’t an island');
+  return prepare(JSON.parse(JSON.stringify(o)));
+}
+
+// Save codes move an island to another device: "RIz" + base64 of the deflated JSON ("RIp" when this
+// browser can't compress).
+function toB64(bytes){
+  let s=''; for(let i=0;i<bytes.length;i+=0x8000) s+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));
+  return btoa(s);
+}
+function fromB64(str){ const s=atob(str), out=new Uint8Array(s.length); for(let i=0;i<s.length;i++) out[i]=s.charCodeAt(i); return out; }
+async function islandCode(isl,plain){
+  const bytes=new TextEncoder().encode(JSON.stringify(packIsland(isl)));
+  if(!plain&&typeof CompressionStream!=='undefined'){
+    try{
+      const z=new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+      return 'RIz'+toB64(z);
+    }catch(e){}
+  }
+  return 'RIp'+toB64(bytes);
+}
+async function readCode(code){
+  code=String(code||'').replace(/\s+/g,'');
+  const kind=code.slice(0,3);
+  if(kind!=='RIz'&&kind!=='RIp') throw new Error('That doesn’t look like a Robot Island code');
+  let bytes;
+  try{ bytes=fromB64(code.slice(3)); }catch(e){ throw new Error('That code got cut off or changed'); }
+  if(kind==='RIz'){
+    if(typeof DecompressionStream==='undefined') throw new Error('This browser can’t open that code');
+    try{ bytes=new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer()); }
+    catch(e){ throw new Error('That code got cut off or changed'); }
+  }
+  let o;
+  try{ o=JSON.parse(new TextDecoder().decode(bytes)); }catch(e){ throw new Error('That code got cut off or changed'); }
+  return unpackIsland(o);
+}
+
+/* ================================================================
+   STORAGE — the players and their islands
+   ================================================================ */
+const STORE=(function(){
+  if(typeof window!=='undefined' && window.storage && window.storage.get) return 'claude';
+  try{ localStorage.setItem('__t','1'); localStorage.removeItem('__t'); return 'local'; }
+  catch(e){ return 'memory'; }
+})();
+let MEM=null, saveT=null;
+let DATA={readers:[],islands:{},last:null};
+let ISL=null, ISL_ID=null;   // the open island
+
+async function load(){
+  try{
+    if(STORE==='claude'){ const r=await window.storage.get(KEY); return r?JSON.parse(r.value):null; }
+    if(STORE==='local'){ const r=localStorage.getItem(KEY); return r?JSON.parse(r):null; }
+    return MEM;
+  }catch(e){ return null; }
+}
+function blob(){
+  if(ISL&&ISL_ID){ ISL.seen=Date.now(); DATA.islands[ISL_ID]=packIsland(ISL); }
+  return JSON.stringify({v:1,readers:DATA.readers,islands:DATA.islands,last:DATA.last});
+}
+async function write(b){
+  try{
+    if(STORE==='claude') await window.storage.set(KEY,b);
+    else if(STORE==='local') localStorage.setItem(KEY,b);
+    else MEM=JSON.parse(b);
+  }catch(e){ console.warn('[Robot Island] save failed',e); }
+}
+function save(){ clearTimeout(saveT); saveT=setTimeout(function(){ write(blob()); },250); }
+function saveNow(){ clearTimeout(saveT); write(blob()); }
+
+function uid(){ return Math.random().toString(36).slice(2,10); }
+// Players seeded by the chore board arrive as {name,color,level} with no id.
+function heal(){
+  DATA.readers=(DATA.readers||[]).filter(p=>p&&typeof p.name==='string');
+  DATA.readers.forEach(function(p,i){ p.id=p.id||uid(); p.color=p.color||COLORS[i%COLORS.length]; });
+  if(!DATA.islands||typeof DATA.islands!=='object') DATA.islands={};
+}
+function islandName(id){
+  if(id===FAMILY) return 'Family island';
+  const p=DATA.readers.filter(r=>r.id===id)[0];
+  return p?p.name+'’s island':'Island';
+}
+// Opens a player's island (or the family one), making it the first time.
+function openIsland(id){
+  if(ISL&&ISL_ID) DATA.islands[ISL_ID]=packIsland(ISL);
+  let isl=null;
+  try{ if(DATA.islands[id]) isl=unpackIsland(DATA.islands[id]); }catch(e){ isl=null; }
+  if(!isl) isl=newIsland(id===FAMILY?FAMILY_SEED:Math.floor(Math.random()*1e9),islandName(id));
+  isl.name=islandName(id);
+  ISL=isl; ISL_ID=id; DATA.last=id;
+  const away=creditAway(isl,Date.now()-isl.seen);
+  isl.seen=Date.now();
+  DATA.islands[id]=packIsland(isl);
+  return away;
+}
+
+/* ================================================================
+   SCREEN — sprites, drawing, touch, panels
+   ================================================================ */
+const EMOJI_FONT="'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol',sans-serif";
+const EMOJI_TEXT='🪵🪨🧱⚙️🔌⚡💾🪟🛡️🔥🚀🛰️➡️⛏️🛠️🏭🌲🤖❓✋🗑️🏝️🎯📋📥🎉🔓🌋';
+const SPR={}, SPR_PX=64, ICON_URL={};
+const $=id=>document.getElementById(id);
+let cv=null, ctx=null, DPR=1, W=0, H=0;   // the canvas, in device pixels
+let cam={x:32,y:32,z:40};                 // z is CSS pixels per square
+let terrain=null;                         // the island's ground, 8 pixels a square
+let mode={t:'none'};                      // none | belt | build (with .type) | remove
+let ghost=null, path=null, rot=0;
+let sheetB=null, modalQ=[], running=false;
+let lastT=0, acc=0, lastDraw=0, lastHud=0, hiddenAt=0;
+
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+function mk(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+function rr(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+function shade(hex,f){
+  const n=parseInt(hex.slice(1),16), m=v=>Math.max(0,Math.min(255,Math.round(f<0?v*(1+f):v+(255-v)*f)));
+  return 'rgb('+m(n>>16)+','+m(n>>8&255)+','+m(n&255)+')';
+}
+
+/* ---------------- sprites ---------------- */
+function emojiSprite(e,badge){
+  const c=mk(SPR_PX,SPR_PX), g=c.getContext('2d');
+  g.textAlign='center'; g.textBaseline='middle';
+  g.font=Math.round(SPR_PX*0.74)+'px '+EMOJI_FONT; g.fillText(e,SPR_PX/2,SPR_PX*0.54);
+  if(badge){ g.font=Math.round(SPR_PX*0.42)+'px '+EMOJI_FONT; g.fillText(badge,SPR_PX*0.77,SPR_PX*0.75); }
+  return c;
+}
+function drawnSprite(kind,col){
+  const S=SPR_PX, c=mk(S,S), g=c.getContext('2d');
+  g.lineJoin='round'; g.lineWidth=S*0.05; g.strokeStyle='rgba(0,0,0,.45)';
+  const poly=pts=>{ g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0]*S,p[1]*S):g.moveTo(p[0]*S,p[1]*S)); g.closePath(); };
+  const dot=(x,y,r)=>{ g.beginPath(); g.arc(x*S,y*S,r*S,0,7); g.fill(); };
+  if(kind==='ore'){
+    g.fillStyle=shade(col,-0.35); poly([[.18,.62],[.3,.3],[.55,.2],[.8,.36],[.85,.66],[.6,.83],[.3,.8]]); g.fill(); g.stroke();
+    g.fillStyle=col; dot(.42,.45,.1); dot(.64,.4,.07); dot(.56,.64,.08); dot(.33,.64,.055);
+  } else if(kind==='bar'){
+    g.fillStyle=col; poly([[.14,.7],[.3,.36],[.7,.36],[.86,.7]]); g.fill(); g.stroke();
+    g.fillStyle='rgba(255,255,255,.6)'; g.fillRect(.34*S,.42*S,.32*S,.07*S);
+  } else if(kind==='plank'){
+    g.fillStyle=col; rr(g,.1*S,.36*S,.8*S,.3*S,.05*S); g.fill(); g.stroke();
+    g.strokeStyle='rgba(120,70,30,.6)'; g.lineWidth=S*.03; g.beginPath();
+    g.moveTo(.2*S,.46*S); g.lineTo(.6*S,.46*S); g.moveTo(.36*S,.56*S); g.lineTo(.8*S,.56*S); g.stroke();
+  } else if(kind==='plate'){
+    g.fillStyle=col; rr(g,.2*S,.2*S,.6*S,.6*S,.08*S); g.fill(); g.stroke();
+    g.fillStyle='rgba(60,70,85,.75)'; dot(.3,.3,.045); dot(.7,.3,.045); dot(.3,.7,.045); dot(.7,.7,.045);
+  }
+  return c;
+}
+function buildSprites(){
+  for(const k of ITEM_ORDER){ const it=ITEMS[k]; SPR['i:'+k]=it.e?emojiSprite(it.e,it.badge):drawnSprite(it.draw,it.c); }
+  for(const t in BUILD) SPR['b:'+t]=emojiSprite(BUILD[t].e);
+  SPR['r:wood']=emojiSprite('🌲'); SPR['r:stone']=emojiSprite('🪨');
+  SPR['r:iron']=SPR['i:iron']; SPR['r:copper']=SPR['i:copper'];
+  SPR.robot=emojiSprite('🤖'); SPR.q=emojiSprite('❓');
+}
+// Canvas emoji only use the web font once it has loaded, so the sprites are drawn again when it arrives.
+function loadEmojiFont(){
+  buildSprites();
+  if(!(document.fonts&&document.fonts.load)) return;
+  document.fonts.load('48px "Noto Color Emoji"',EMOJI_TEXT).then(function(f){ if(f&&f.length) buildSprites(); }).catch(function(){});
+}
+// An item for the page (not the canvas): emoji as text, drawn ones as a little picture.
+function icon(k){
+  const it=ITEMS[k];
+  if(it.e) return '<span class="ic">'+it.e+(it.badge?'<span class="bd">'+it.badge+'</span>':'')+'</span>';
+  if(!ICON_URL[k]) ICON_URL[k]=drawnSprite(it.draw,it.c).toDataURL();
+  return '<img class="ic" alt="" src="'+ICON_URL[k]+'">';
+}
+const costHtml=o=>Object.keys(o).map(k=>o[k]+icon(k)).join(' ');
+
+/* ---------------- the ground ---------------- */
+function buildTerrain(){
+  const P=8, c=mk(N*P,N*P), g=c.getContext('2d'), m=ISL.map;
+  const RES_COL=['', '#4E9A45','#A3A89E','#7E91A8','#C7875A'];
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const i=y*N+x, gr=m.ground[i];
+    let col;
+    if(!gr){
+      let shore=false;
+      for(let yy=-1;yy<=1&&!shore;yy++) for(let xx=-1;xx<=1;xx++){ const X=x+xx,Y=y+yy; if(inMap(X,Y)&&m.ground[Y*N+X]){ shore=true; break; } }
+      col=shore?'#2C8CC6':'#1B6FA6';
+    } else if(m.res[i]) col=RES_COL[m.res[i]];
+    else col=gr===1?'#EBD39A':((x+y)%2?'#7CC46A':'#76BE63');
+    g.fillStyle=col; g.fillRect(x*P,y*P,P,P);
+  }
+  terrain=c;
+}
+
+/* ---------------- camera ---------------- */
+const minZ=()=>Math.max(8,Math.min(innerWidth,innerHeight)/N*0.9);
+function clampCam(){
+  cam.z=Math.max(minZ(),Math.min(90,cam.z));
+  cam.x=Math.max(0,Math.min(N,cam.x)); cam.y=Math.max(0,Math.min(N,cam.y));
+  if(ISL) ISL.cam={x:Math.round(cam.x*100)/100,y:Math.round(cam.y*100)/100,z:Math.round(cam.z*10)/10};
+}
+function homeCam(){ cam={x:ROCKET.x+2,y:ROCKET.y+2.5,z:Math.max(26,Math.min(48,innerWidth/17))}; clampCam(); }
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=Math.round(innerWidth*DPR); H=Math.round(innerHeight*DPR);
+  cv.width=W; cv.height=H; clampCam();
+}
+const worldAt=(cx,cy)=>({x:cam.x+(cx-innerWidth/2)/cam.z, y:cam.y+(cy-innerHeight/2)/cam.z});
+const tileAt=(cx,cy)=>{ const w=worldAt(cx,cy); return {x:Math.floor(w.x),y:Math.floor(w.y)}; };
+function ghostAt(cx,cy){ const s=BUILD[mode.type].size, w=worldAt(cx,cy); return {x:Math.round(w.x-s/2),y:Math.round(w.y-s/2)}; }
+
+/* ---------------- drawing ---------------- */
+// Which side items come into a belt from: behind it, unless only a side feeds it (then it's a corner).
+function feeds(n,b){
+  if(n.t==='belt') return n.x+DX[n.r]===b.x&&n.y+DY[n.r]===b.y;
+  return n.t!=='rocket'&&outTiles(n).some(p=>p[0]===b.x&&p[1]===b.y);
+}
+function linkBelts(){
+  for(const b of ISL.b){
+    if(b.t!=='belt') continue;
+    const back=(b.r+2)%4, n=at(ISL,b.x+DX[back],b.y+DY[back]);
+    b.e=back;
+    if(!(n&&feeds(n,b))) for(const d of [(b.r+1)%4,(b.r+3)%4]){
+      const s=at(ISL,b.x+DX[d],b.y+DY[d]);
+      if(s&&feeds(s,b)){ b.e=d; break; }
+    }
+  }
+  ISL.changed=false;
+}
+// A point along a belt square (0 = where items come in, 1 = where they leave), from its middle, in squares.
+function beltPoint(b,f){
+  const e=b.e===undefined?(b.r+2)%4:b.e;
+  if(f<0.5){ const t=1-f*2; return [DX[e]*0.5*t,DY[e]*0.5*t,-DX[e],-DY[e]]; }
+  const t=(f-0.5)*2; return [DX[b.r]*0.5*t,DY[b.r]*0.5*t,DX[b.r],DY[b.r]];
+}
+function arrow(cx,cy,d,s,fill){
+  const dx=DX[d], dy=DY[d];
+  ctx.beginPath();
+  ctx.moveTo(cx+dx*s,cy+dy*s); ctx.lineTo(cx-dx*s*0.6-dy*s*0.8,cy-dy*s*0.6+dx*s*0.8); ctx.lineTo(cx-dx*s*0.6+dy*s*0.8,cy-dy*s*0.6-dx*s*0.8);
+  ctx.closePath(); ctx.fillStyle=fill; ctx.fill();
+  ctx.lineWidth=Math.max(1,s*0.18); ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.stroke();
+}
+function drawBelt(b,ox,oy,z,now){
+  const x=ox+b.x*z, y=oy+b.y*z, c=z/2, e=b.e===undefined?(b.r+2)%4:b.e;
+  ctx.fillStyle='#39404E'; ctx.fillRect(x+z*.04,y+z*.04,z*.92,z*.92);
+  ctx.strokeStyle='#5A6375'; ctx.lineWidth=z*.56; ctx.lineCap='butt'; ctx.lineJoin='miter';
+  ctx.beginPath(); ctx.moveTo(x+c+DX[e]*c,y+c+DY[e]*c); ctx.lineTo(x+c,y+c); ctx.lineTo(x+c+DX[b.r]*c,y+c+DY[b.r]*c); ctx.stroke();
+  if(z<14) return;
+  ctx.strokeStyle='rgba(255,255,255,.32)'; ctx.lineWidth=Math.max(1,z*.06); ctx.lineCap='round';
+  const ph=(now/700)%1;
+  for(const f0 of [0,0.5]){
+    const [px,py,dx,dy]=beltPoint(b,(f0+ph*0.5)%1), X=x+c+px*z, Y=y+c+py*z, a=z*.13;
+    ctx.beginPath(); ctx.moveTo(X-dx*a-dy*a,Y-dy*a+dx*a); ctx.lineTo(X,Y); ctx.lineTo(X-dx*a+dy*a,Y-dy*a-dx*a); ctx.stroke();
+  }
+}
+function drawItems(b,ox,oy,z){
+  const c=z/2, s=z*.56;
+  for(const q of b.it){
+    const [px,py]=beltPoint(b,q.p);
+    ctx.drawImage(SPR['i:'+q.k],ox+b.x*z+c+px*z-s/2,oy+b.y*z+c+py*z-s/2,s,s);
+  }
+}
+function machineMakes(b){
+  if(b.t==='drill') return b.res;
+  if(b.t==='furnace') return b.cr?recipe(b.t,b.cr).out:null;
+  const rc=recipe(b.t,b.rc); return rc?rc.out:null;
+}
+function working(b){ return b.t==='drill'?b.cov&&count(b.out)<4:!!b.cr; }
+function drawMachine(b,ox,oy,z,now){
+  const s=size(b), x=ox+b.x*z, y=oy+b.y*z, w=s*z, def=BUILD[b.t];
+  if(b.t==='rocket'){
+    ctx.fillStyle='#8E9BAA'; rr(ctx,x+z*.1,y+z*.1,w-z*.2,w-z*.2,z*.35); ctx.fill();
+    ctx.fillStyle='#C9D3DE'; rr(ctx,x+z*.2,y+z*.2,w-z*.4,w-z*.4,z*.3); ctx.fill();
+    ctx.strokeStyle='#FFCB2E'; ctx.lineWidth=z*.12; ctx.setLineDash([z*.3,z*.25]);
+    ctx.beginPath(); ctx.arc(x+w/2,y+w/2,w*.36,0,7); ctx.stroke(); ctx.setLineDash([]);
+    const rs=w*.78, wob=Math.sin(now/400)*z*.04;
+    ctx.drawImage(SPR['b:rocket'],x+w/2-rs/2,y+w/2-rs/2+wob,rs,rs);
+    const bs=w*.34; ctx.drawImage(SPR.robot,x+z*.05,y+w-bs-z*.02+Math.abs(Math.sin(now/300))*-z*.12,bs,bs);
+    return;
+  }
+  ctx.fillStyle=shade(def.color,-0.35); rr(ctx,x+z*.06,y+z*.08,w-z*.12,w-z*.12,z*.2); ctx.fill();
+  ctx.fillStyle=def.color; rr(ctx,x+z*.08,y+z*.05,w-z*.16,w-z*.18,z*.18); ctx.fill();
+  const on=working(b), bob=on?Math.sin(now/90+b.i)*z*.035:0, is=w*.56;
+  ctx.drawImage(SPR['b:'+b.t],x+w/2-is/2,y+w/2-is/2-z*.08+bob,is,is);
+  // What it makes, in a bubble at the top right ("?" until a workshop or assembler is told).
+  const k=machineMakes(b), br=z*.3, bx=x+w-z*.36, by=y+z*.34;
+  if(k||b.t==='workshop'||b.t==='assembler'){
+    ctx.fillStyle='rgba(255,255,255,.92)'; ctx.beginPath(); ctx.arc(bx,by,br,0,7); ctx.fill();
+    ctx.drawImage(k?SPR['i:'+k]:SPR.q,bx-br*.85,by-br*.85,br*1.7,br*1.7);
+  }
+  const frac=b.cr?b.p/recipe(b.t,b.cr).t:(b.t==='drill'&&on?b.p/DRILL_T[b.cov]:0);
+  if(frac>0){
+    const bw=w-z*.6, bh=Math.max(3,z*.11), bx2=x+z*.3, by2=y+w-z*.36;
+    ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fillRect(bx2,by2,bw,bh);
+    ctx.fillStyle='#2FE39B'; ctx.fillRect(bx2,by2,bw*Math.min(1,frac),bh);
+  }
+  arrow(x+w/2+DX[b.r]*(w/2-z*.2),y+w/2+DY[b.r]*(w/2-z*.2),b.r,z*.2,'#fff');
+  if(sheetB===b){ ctx.strokeStyle='#FFCB2E'; ctx.lineWidth=Math.max(2,z*.08); rr(ctx,x+z*.03,y+z*.03,w-z*.06,w-z*.06,z*.2); ctx.stroke(); }
+}
+function dirTo(a,b){ return b.x>a.x?0:b.y>a.y?1:b.x<a.x?2:3; }
+function pathDirs(){
+  const n=path.length;
+  if(n===1) return [rot];
+  return path.map((p,i)=>i<n-1?dirTo(p,path[i+1]):dirTo(path[i-1],p));
+}
+function render(now){
+  const z=cam.z*DPR, ox=W/2-cam.x*z, oy=H/2-cam.y*z;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle='#145A8A'; ctx.fillRect(0,0,W,H);
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(terrain,ox,oy,N*z,N*z);
+  ctx.imageSmoothingEnabled=true;
+  const x0=Math.max(0,Math.floor(-ox/z)), y0=Math.max(0,Math.floor(-oy/z));
+  const x1=Math.min(N-1,Math.floor((W-ox)/z)), y1=Math.min(N-1,Math.floor((H-oy)/z));
+  const m=ISL.map;
+  if(z>=10) for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+    const i=y*N+x, r=m.res[i];
+    if(!r||ISL.occ[i]) continue;
+    const pad=r===1?0.02:0.14;
+    ctx.drawImage(SPR['r:'+RES[r]],ox+(x+pad)*z,oy+(y+pad)*z,z*(1-2*pad),z*(1-2*pad));
+  }
+  if(z>=24){
+    ctx.strokeStyle='rgba(0,0,0,.07)'; ctx.lineWidth=1; ctx.beginPath();
+    for(let x=x0;x<=x1+1;x++){ ctx.moveTo(Math.round(ox+x*z)+.5,oy+y0*z); ctx.lineTo(Math.round(ox+x*z)+.5,oy+(y1+1)*z); }
+    for(let y=y0;y<=y1+1;y++){ ctx.moveTo(ox+x0*z,Math.round(oy+y*z)+.5); ctx.lineTo(ox+(x1+1)*z,Math.round(oy+y*z)+.5); }
+    ctx.stroke();
+  }
+  const seen=[];
+  for(const b of ISL.b){ const s=size(b); if(b.x<=x1&&b.y<=y1&&b.x+s>x0&&b.y+s>y0) seen.push(b); }
+  for(const b of seen) if(b.t==='belt') drawBelt(b,ox,oy,z,now);
+  for(const b of seen) if(b.t==='belt') drawItems(b,ox,oy,z);
+  for(const b of seen) if(b.t!=='belt') drawMachine(b,ox,oy,z,now);
+  if(sheetB&&sheetB.t==='belt'){ ctx.strokeStyle='#FFCB2E'; ctx.lineWidth=Math.max(2,z*.08); ctx.strokeRect(ox+sheetB.x*z+2,oy+sheetB.y*z+2,z-4,z-4); }
+  // What you're about to build.
+  ctx.globalAlpha=0.6;
+  if(mode.t==='build'&&ghost){
+    const s=BUILD[mode.type].size, bad=placeProblem(ISL,mode.type,ghost.x,ghost.y), x=ox+ghost.x*z, y=oy+ghost.y*z, w=s*z;
+    ctx.fillStyle=bad?'#FF5C5C':'#2FE39B'; rr(ctx,x+z*.05,y+z*.05,w-z*.1,w-z*.1,z*.18); ctx.fill();
+    ctx.globalAlpha=0.9;
+    ctx.drawImage(SPR['b:'+mode.type],x+w/2-w*.28,y+w/2-w*.28,w*.56,w*.56);
+    arrow(x+w/2+DX[rot]*(w/2-z*.2),y+w/2+DY[rot]*(w/2-z*.2),rot,z*.2,'#fff');
+  }
+  if(mode.t==='belt'&&(path||ghost)){
+    const tiles=path||[ghost], dirs=path?pathDirs():[rot];
+    tiles.forEach(function(p,i){
+      const b=at(ISL,p.x,p.y);
+      if(b&&b.t!=='belt') return;
+      const ok=!!b||!placeProblem(ISL,'belt',p.x,p.y);
+      ctx.fillStyle=ok?'#FFFFFF':'#FF5C5C'; ctx.fillRect(ox+p.x*z+z*.06,oy+p.y*z+z*.06,z*.88,z*.88);
+      arrow(ox+p.x*z+z/2,oy+p.y*z+z/2,dirs[i],z*.28,'#2FE39B');
+    });
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ---------------- touch and mouse ---------------- */
+const PTR=new Map();
+let G=null;   // the gesture under way
+function mid2(){ const [a,b]=[...PTR.values()]; return {x:(a.x+b.x)/2,y:(a.y+b.y)/2,d:Math.hypot(a.x-b.x,a.y-b.y)||1}; }
+function onDown(e){
+  e.preventDefault();
+  camGoal=null;
+  try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+  PTR.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(PTR.size===1){
+    const pan=mode.t==='none'||(e.pointerType==='mouse'&&e.button!==0);
+    G={k:'one',id:e.pointerId,sx:e.clientX,sy:e.clientY,cx:cam.x,cy:cam.y,moved:false,pan};
+    if(pan) return;
+    if(mode.t==='belt'){ ghost=null; path=null; extendPath(tileAt(e.clientX,e.clientY)); }
+    else if(mode.t==='build') ghost=ghostAt(e.clientX,e.clientY);
+    else if(mode.t==='remove') removeAt(tileAt(e.clientX,e.clientY),false);
+  } else if(PTR.size===2){
+    path=null;   // a second finger means moving the map, not laying belts
+    const m=mid2(); G={k:'two',d:m.d,z:cam.z,w:worldAt(m.x,m.y)};
+  }
+}
+function onMove(e){
+  if(!PTR.has(e.pointerId)){
+    if(e.pointerType==='mouse'){
+      if(mode.t==='build') ghost=ghostAt(e.clientX,e.clientY);
+      else if(mode.t==='belt'&&!path) ghost=tileAt(e.clientX,e.clientY);
+    }
+    return;
+  }
+  PTR.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(G&&G.k==='two'&&PTR.size>=2){
+    const m=mid2();
+    cam.z=G.z*m.d/G.d; clampCam();
+    cam.x=G.w.x-(m.x-innerWidth/2)/cam.z; cam.y=G.w.y-(m.y-innerHeight/2)/cam.z; clampCam();
+    return;
+  }
+  if(!G||G.k!=='one'||G.id!==e.pointerId) return;
+  if(Math.hypot(e.clientX-G.sx,e.clientY-G.sy)>8) G.moved=true;
+  if(G.pan){ cam.x=G.cx-(e.clientX-G.sx)/cam.z; cam.y=G.cy-(e.clientY-G.sy)/cam.z; clampCam(); }
+  else if(mode.t==='belt') extendPath(tileAt(e.clientX,e.clientY));
+  else if(mode.t==='build') ghost=ghostAt(e.clientX,e.clientY);
+  else if(mode.t==='remove') removeAt(tileAt(e.clientX,e.clientY),true);
+}
+function onUp(e,cancel){
+  if(!PTR.has(e.pointerId)) return;
+  PTR.delete(e.pointerId);
+  if(G&&G.k==='one'&&G.id===e.pointerId){
+    if(cancel) path=null;
+    else if(G.pan){ if(!G.moved&&mode.t==='none') tapAt(tileAt(e.clientX,e.clientY)); }
+    else if(mode.t==='belt') commitPath();
+    else if(mode.t==='build'){ placeGhost(); if(e.pointerType!=='mouse') ghost=null; }
+    G=null;
+  } else if(PTR.size===0) G=null;
+  else if(G&&G.k==='two') G={k:'dead'};   // the other finger lifting later does nothing
+}
+function onWheel(e){
+  e.preventDefault();
+  const w=worldAt(e.clientX,e.clientY);
+  cam.z*=Math.exp(-e.deltaY*0.0015); clampCam();
+  cam.x=w.x-(e.clientX-innerWidth/2)/cam.z; cam.y=w.y-(e.clientY-innerHeight/2)/cam.z; clampCam();
+}
+
+// Belts follow your finger one square at a time; going back over the path takes squares off it.
+function extendPath(t){
+  if(!path){ path=inMap(t.x,t.y)?[t]:null; return; }
+  let last=path[path.length-1], guard=0;
+  while((last.x!==t.x||last.y!==t.y)&&guard++<200){
+    const dx=t.x-last.x, dy=t.y-last.y;
+    const n=Math.abs(dx)>=Math.abs(dy)?{x:last.x+Math.sign(dx),y:last.y}:{x:last.x,y:last.y+Math.sign(dy)};
+    if(!inMap(n.x,n.y)) break;
+    const j=path.findIndex(p=>p.x===n.x&&p.y===n.y);
+    if(j>=0) path.length=j+1; else path.push(n);
+    last=n;
+  }
+}
+function commitPath(){
+  if(!path) return;
+  const dirs=pathDirs();
+  if(path.length===1){   // a tap on a belt turns it
+    const b=at(ISL,path[0].x,path[0].y);
+    if(b&&b.t==='belt'){ turn(ISL,b); path=null; return; }
+    if(b){ path=null; return; }
+  }
+  let short=false, water=false;
+  path.forEach(function(p,i){
+    const b=at(ISL,p.x,p.y);
+    if(b){ if(b.t==='belt'&&b.r!==dirs[i]){ b.r=dirs[i]; ISL.changed=true; } return; }
+    if(short) return;
+    const why=placeProblem(ISL,'belt',p.x,p.y);
+    if(why==='cost') short=true;
+    else if(why==='blocked') water=true;
+    else if(!why) place(ISL,'belt',p.x,p.y,dirs[i]);
+  });
+  if(short) toast('Out of belts! Bring more '+icon('wood')+' wood to the rocket.');
+  else if(water) toast('Belts can’t go on water.');
+  path=null; refreshHud(); save();
+}
+const WHY={blocked:'That spot is taken, or it’s water.',nores:'Drills go on trees 🌲, rocks 🪨 or ore.'};
+function placeGhost(){
+  if(!ghost) return;
+  const type=mode.type, why=placeProblem(ISL,type,ghost.x,ghost.y);
+  if(why==='cost') return toast('Need '+costHtml(missing(ISL,type))+' more in the rocket');
+  if(why==='locked') return toast('Finish goal '+(unlockGoal(type)+1)+' to unlock this');
+  if(why) return toast(WHY[why]);
+  const b=place(ISL,type,ghost.x,ghost.y,rot);
+  refreshHud(); save();
+  if(b.t==='workshop'||b.t==='assembler'){ setMode('none'); openSheet(b); }
+}
+function removeAt(t,drag){
+  const b=at(ISL,t.x,t.y);
+  if(!b) return;
+  if(b.t==='rocket'){ if(!drag) toast('The rocket stays! 🚀'); return; }
+  if(sheetB===b) closeSheet();
+  removeB(ISL,b); refreshHud(); save();
+}
+function tapAt(t){ const b=at(ISL,t.x,t.y); if(b) openSheet(b); else closeSheet(); }
+
+/* ---------------- tools ---------------- */
+function setMode(t,type){
+  mode={t:t,type:type}; ghost=null; path=null;
+  if(t!=='none') closeSheet();
+  refreshHud(true);
+}
+function toolList(){
+  return [{id:'move',e:'✋',n:'Move'}].concat(TOOLS.map(t=>({id:t,e:BUILD[t].e,n:BUILD[t].name}))).concat([{id:'remove',e:'🗑️',n:'Remove'}]);
+}
+function toolsHtml(){
+  return toolList().map(function(t){
+    const on=(t.id==='move'&&mode.t==='none')||(t.id==='remove'&&mode.t==='remove')||(mode.type===t.id);
+    let sub='', cls='tool'+(on?' on':'');
+    if(BUILD[t.id]){
+      if(!unlocked(ISL,t.id)){ cls+=' locked'; sub='Goal '+(unlockGoal(t.id)+1); }
+      else if(ISL.free[t.id]>0) sub=ISL.free[t.id]+' free';
+      else { sub=Object.keys(BUILD[t.id].cost).map(k=>BUILD[t.id].cost[k]+icon(k)).join(''); if(Object.keys(missing(ISL,t.id)).length) cls+=' short'; }
+    }
+    return '<button class="'+cls+'" data-tool="'+t.id+'">'+(cls.indexOf('locked')>=0?'<span class="lk">🔒</span>':'')+
+      '<span class="te">'+t.e+'</span><span class="tn">'+t.n+'</span><span class="tc">'+sub+'</span></button>';
+  }).join('');
+}
+function pickTool(id){
+  if(id==='move') return setMode('none');
+  if(id==='remove') return setMode(mode.t==='remove'?'none':'remove');
+  if(!unlocked(ISL,id)) return toast('Finish goal '+(unlockGoal(id)+1)+' to unlock the '+BUILD[id].name.toLowerCase());
+  if(mode.type===id) return setMode('none');
+  setMode(id==='belt'?'belt':'build',id);
+  if(id!=='belt'&&id!=='drill') rot=0;
+}
+const MODE_TEXT={
+  belt:'Drag to lay a belt. Tap a belt to turn it. Two fingers move the map.',
+  build:'Tap where it goes. ↻ turns its arrow, which is where things come out.',
+  remove:'Tap or drag over things to take them away. You get back everything.',
+};
+
+/* ---------------- top bar ---------------- */
+const HTML_CACHE={};
+function setHTML(id,html){ if(HTML_CACHE[id]!==html){ HTML_CACHE[id]=html; $(id).innerHTML=html; } }
+function goalHtml(){
+  if(ISL.goal>=GOALS.length){
+    return ISL.launched?'<div class="goal-head"><span class="goal-num">DONE</span><span class="goal-title">🌋 A new place is coming soon!</span></div>'
+      :'<div class="goal-head"><span class="goal-title">🚀 Rocket repaired! Tap to launch!</span></div>';
+  }
+  const g=GOALS[ISL.goal];
+  return '<div class="goal-head"><span class="goal-num">GOAL '+(ISL.goal+1)+'/'+GOALS.length+'</span><span class="goal-title">'+g.title+'</span></div><div class="needs">'+
+    Object.keys(g.need).map(function(k){
+      const have=Math.min(g.need[k],ISL.got[k]||0), done=have>=g.need[k];
+      return '<span class="need'+(done?' done':'')+'">'+icon(k)+have+'/'+g.need[k]+'<span class="bar"><i style="width:'+Math.round(100*have/g.need[k])+'%"></i></span></span>';
+    }).join('')+'</div>';
+}
+function refreshHud(force){
+  if(!ISL) return;
+  const p=DATA.readers.filter(r=>r.id===ISL_ID)[0];
+  $('whoDot').style.background=p?p.color:'#2FE39B';
+  setHTML('whoName',esc(ISL_ID===FAMILY?'🏝️ Family':p?p.name:''));
+  setHTML('goal',goalHtml());
+  $('goal').className=ISL.goal>=GOALS.length&&!ISL.launched?'launch':'';
+  setHTML('store',ITEM_ORDER.filter(k=>ISL.store[k]>0).map(k=>'<span class="sto">'+icon(k)+fmt(ISL.store[k])+'</span>').join(''));
+  setHTML('tools',toolsHtml());
+  const mt=mode.t==='none'?'':MODE_TEXT[mode.t];
+  $('modeBar').className=mt?'on':'';
+  setHTML('modeText',mt);
+  $('rotBtn').style.display=mode.t==='build'||mode.t==='belt'?'':'none';
+}
+const fmt=n=>n>=10000?Math.floor(n/1000)+'k':String(n);
+
+/* ---------------- the inspect sheet ---------------- */
+// Opening a sheet slides the map so the building isn't hidden under it.
+let camGoal=null;
+function openSheet(b){
+  sheetB=b; renderSheet(); $('sheet').classList.add('on');
+  const s=size(b), sy=innerHeight/2+(b.y+s/2-cam.y)*cam.z, want=innerHeight*0.28;
+  if(sy>innerHeight*0.4) camGoal={x:cam.x,y:cam.y+(sy-want)/cam.z};
+}
+function closeSheet(){ sheetB=null; $('sheet').classList.remove('on'); }
+function rcpHtml(rc,on,pick){
+  return '<'+(pick?'button data-rc="'+rc.id+'"':'div')+' class="rcp'+(on?' on':'')+'">'+
+    Object.keys(rc.in).map(k=>rc.in[k]+icon(k)).join(' + ')+' <span class="arrow">➜</span> '+(rc.n>1?rc.n:'')+icon(rc.out)+
+    '<span class="rn">'+ITEMS[rc.out].name+'</span></'+(pick?'button':'div')+'>';
+}
+function renderSheet(){
+  const b=sheetB, d=BUILD[b.t];
+  let h='<div class="sh-head"><span class="big ic">'+d.e+'</span><h2>'+d.name+'</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>';
+  if(b.t==='rocket'){
+    h+='<p class="sh-line">Everything that reaches the rocket is kept here, and new buildings are paid for from it.</p>';
+  } else if(b.t==='belt'){
+    h+='<p class="sh-line">Belts carry things in the direction of the arrow. Machines take things from belts on any side.</p>';
+  } else if(b.t==='drill'){
+    h+='<p class="sh-line">Mining '+icon(b.res)+' <b>'+ITEMS[b.res].name+'</b> on '+b.cov+' square'+(b.cov>1?'s':'')+': 1 every '+(DRILL_T[b.cov]/TPS).toFixed(1)+' s. More squares under it mine faster.</p>';
+  } else if(b.t==='furnace'){
+    h+='<p class="sh-line">Melts whatever comes in:</p><div class="recipes">'+RECIPES.furnace.map(rc=>rcpHtml(rc,b.cr===rc.id,false)).join('')+'</div>';
+  } else {
+    h+='<p class="sh-line">What should it make?</p><div class="recipes">'+RECIPES[b.t].map(rc=>rcpHtml(rc,b.rc===rc.id,true)).join('')+'</div>';
+  }
+  h+='<div id="shLive"></div>';
+  if(b.t!=='rocket') h+='<div class="sh-btns"><button class="mbtn" data-act="turn">↻ Turn</button><button class="mbtn" data-act="remove">🗑️ Remove</button></div>';
+  $('sheet').innerHTML=h; HTML_CACHE.shLive=null;
+  renderSheetLive();
+}
+function statusOf(b){
+  if(b.t==='drill') return count(b.out)>=4?['wait','Full! Run a belt from its arrow ➜']:['ok','Mining…'];
+  if(b.t==='rocket'||b.t==='belt') return null;
+  if(b.t!=='furnace'&&!b.rc) return ['wait','Tap what it should make'];
+  if(b.cr) return ['ok','Making '+icon(recipe(b.t,b.cr).out)+' '+ITEMS[recipe(b.t,b.cr).out].name+'…'];
+  if(count(b.out)>=OUT_MAX-1) return ['wait','Full! Run a belt from its arrow ➜'];
+  if(b.t==='furnace') return ['wait','Waiting for ore or stone'];
+  const rc=recipe(b.t,b.rc), need=Object.keys(rc.in).filter(k=>(b.in[k]||0)<rc.in[k]);
+  return ['wait','Waiting for '+need.map(k=>(rc.in[k]-(b.in[k]||0))+' more '+icon(k)).join(' and ')];
+}
+function renderSheetLive(){
+  const b=sheetB;
+  if(!b||!ISL.byId.has(b.i)) return closeSheet();
+  let h='';
+  if(b.t==='rocket'){
+    const ks=ITEM_ORDER.filter(k=>ISL.store[k]>0);
+    h+='<div class="grid-items">'+(ks.length?ks.map(k=>'<span class="sto">'+icon(k)+ISL.store[k]+'</span>').join(''):'<span class="sh-line">Nothing yet. Belt something in!</span>')+'</div>';
+    h+='<div class="goal-list">'+GOALS.map((g,i)=>'<div class="'+(i<ISL.goal?'done':i===ISL.goal?'now':'')+'">'+(i<ISL.goal?'✅':i===ISL.goal?'🎯':'⬜')+' '+(i+1)+'. '+g.title+
+      (g.unlock?' <span style="color:var(--muted)">→ '+BUILD[g.unlock].e+'</span>':'')+'</div>').join('')+'</div>';
+  } else {
+    const st=statusOf(b);
+    if(st) h+='<div class="sh-status '+st[0]+'">'+st[1]+'</div>';
+    const list=(o,label)=>{ const ks=Object.keys(o).filter(k=>o[k]>0); return ks.length?'<p class="sh-line">'+label+' '+ks.map(k=>o[k]+icon(k)).join(' ')+'</p>':''; };
+    if(b.t==='belt'){ const o={}; b.it.forEach(q=>add(o,q.k,1)); h+=list(o,'On it:'); }
+    h+=list(b.in,'Inside:')+list(b.out,'Ready to go out:');
+  }
+  setHTML('shLive',h);
+}
+function onSheetClick(e){
+  const a=e.target.closest('[data-act],[data-rc]');
+  if(!a||!sheetB) return;
+  const b=sheetB;
+  if(a.dataset.rc){ setRecipe(ISL,b,a.dataset.rc); renderSheet(); save(); return; }
+  const act=a.dataset.act;
+  if(act==='close') closeSheet();
+  else if(act==='turn'){ turn(ISL,b); save(); }
+  else if(act==='remove'){ closeSheet(); removeB(ISL,b); refreshHud(); save(); }
+}
+
+/* ---------------- pop-ups ---------------- */
+let modalAct=null;
+function modal(html,onAct){ $('modalCard').innerHTML=html; $('modal').classList.add('on'); modalAct=onAct||null; }
+function closeModal(){ $('modal').classList.remove('on'); modalAct=null; if(modalQ.length) modalQ.shift()(); }
+const modalOpen=()=>$('modal').classList.contains('on');
+function later(fn){ if(modalOpen()) modalQ.push(fn); else fn(); }
+function onModalClick(e){
+  if(e.target===$('modal')&&!$('modal').dataset.stay) return closeModal();
+  const a=e.target.closest('[data-m]');
+  if(!a) return;
+  if(a.dataset.m==='close') return closeModal();
+  if(modalAct) modalAct(a.dataset.m,a);
+}
+let toastT=null;
+function toast(html){ const t=$('toast'); t.innerHTML=html; t.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'),2400); }
+function confetti(){
+  const box=$('confetti');
+  for(let i=0;i<40;i++){
+    const c=document.createElement('i');
+    c.style.left=(Math.random()*100)+'%'; c.style.background=COLORS[i%COLORS.length];
+    c.style.animationDelay=(Math.random()*0.6)+'s'; c.style.animationDuration=(1.4+Math.random())+'s';
+    box.appendChild(c);
+  }
+  setTimeout(()=>{ box.innerHTML=''; },3200);
+}
+function dur(s){ const h=Math.floor(s/3600), m=Math.floor(s%3600/60); return h?h+' h'+(m?' '+m+' min':''):m+' min'; }
+function showAway(a){
+  later(()=>modal('<div class="big">🤖</div><h2>While you were away…</h2><p>For '+dur(a.secs)+', your robots kept working and sent these to the rocket:</p>'+
+    '<div class="grid-items">'+Object.keys(a.items).map(k=>'<span class="sto">'+icon(k)+a.items[k].toLocaleString()+'</span>').join('')+'</div>'+
+    (a.capped?'<p style="color:var(--muted);font-size:14px">Robots rest after 8 hours, so that’s 8 hours’ worth.</p>':'')+
+    '<button class="btn" data-m="close">Nice!</button>'));
+}
+function onGoal(ev){
+  confetti();
+  if(ev.goal===GOALS.length-1) return later(showLaunch);
+  const next=GOALS[ev.goal+1];
+  later(()=>modal('<div class="big">🎉</div><h2>Goal done!</h2><p>You finished <b>'+GOALS[ev.goal].title+'</b>.</p>'+
+    (ev.unlock?'<p>🔓 New building: <b>'+BUILD[ev.unlock].e+' '+BUILD[ev.unlock].name+'</b></p>':'')+
+    '<p>🎁 '+GOAL_GIFT.belt+' free belts</p><p>Next: <b>'+next.title+'</b></p><p style="color:var(--muted);font-size:14px">'+next.hint+'</p>'+
+    '<button class="btn" data-m="close">Keep building</button>'));
+}
+function showLaunch(){
+  if(ISL.launched) return;
+  modal('<div class="big" id="rk">🚀</div><h2>Rocket repaired!</h2><p>Every part is fixed. The robot is ready to fly to a new place!</p><button class="btn go" data-m="go">3, 2, 1… Launch!</button><button class="btn ghost" data-m="close">Not yet</button>',
+    function(act){
+      if(act!=='go') return;
+      $('rk').classList.add('fly'); confetti();
+      ISL.launched=true; saveNow();
+      setTimeout(function(){
+        modal('<div class="big">🌋</div><h2>Off to a new place!</h2><p>The robot zoomed away to explore. The next island is coming soon.</p><p>You can keep building here as long as you like.</p><button class="btn" data-m="close">Keep building</button>');
+        refreshHud();
+      },2300);
+    });
+}
+function showHelp(){
+  const g=GOALS[Math.min(ISL.goal,GOALS.length-1)];
+  modal('<h2>How to play</h2><div class="helpsteps">'+
+    '<div>🤖 The robot’s rocket is broken. The goal at the top says what it needs next.</div>'+
+    '<div>⛏️ Put <b>drills</b> on trees 🌲, rocks 🪨 and ore. More squares covered means faster.</div>'+
+    '<div>➡️ Drag <b>belts</b> from a drill’s arrow to a machine or to the rocket 🚀.</div>'+
+    '<div>🔥 🛠️ 🏭 Machines turn things into better things. Tap one to see what it needs.</div>'+
+    '<div>✋ Drag to look around and pinch to zoom. With a tool picked, move the map with two fingers.</div>'+
+    '<div>🗑️ Taking something away gives back everything it cost.</div>'+
+    '<div>😴 Your factory keeps working while you’re away, for up to 8 hours.</div>'+
+    '</div><p><b>Right now:</b> '+g.hint+'</p><button class="btn" data-m="close">Let’s build!</button>');
+}
+function showMenu(){
+  modal('<h2>'+esc(islandName(ISL_ID))+'</h2>'+
+    '<button class="btn ghost" data-m="pick">🏝️ Change island</button>'+
+    '<button class="btn ghost" data-m="home">🎯 Back to the rocket</button>'+
+    '<button class="btn ghost" data-m="help">❓ How to play</button>'+
+    '<button class="btn ghost" data-m="code">📋 Save code (move to another device)</button>'+
+    '<button class="btn ghost" data-m="load">📥 Bring in an island</button>'+
+    '<button class="btn" data-m="close">Back to building</button>',
+    function(act){
+      if(act==='pick'){ closeModal(); showPicker(); }
+      else if(act==='home'){ homeCam(); closeModal(); }
+      else if(act==='help') showHelp();
+      else if(act==='code') showCode();
+      else if(act==='load') showLoad();
+    });
+}
+async function showCode(){
+  const code=await islandCode(ISL);
+  modal('<h2>Save code</h2><p>Copy this code, then on the other device pick <b>📥 Bring in an island</b> and paste it.</p>'+
+    '<textarea id="codeBox" readonly>'+code+'</textarea>'+
+    '<button class="btn" data-m="copy">📋 Copy</button>'+(navigator.share?'<button class="btn ghost" data-m="share">Share…</button>':'')+
+    '<button class="btn ghost" data-m="close">Done</button>',
+    function(act){
+      if(act==='copy') copyText(code,$('codeBox'));
+      else if(act==='share') navigator.share({title:'Robot Island save code',text:code}).catch(function(){});
+    });
+}
+function copyText(text,box){
+  const fallback=function(){ box.select(); try{ document.execCommand('copy'); toast('Copied!'); }catch(e){ toast('Select the code and copy it'); } };
+  if(navigator.clipboard&&window.isSecureContext) navigator.clipboard.writeText(text).then(()=>toast('Copied!'),fallback);
+  else fallback();
+}
+function showLoad(){
+  modal('<h2>Bring in an island</h2><p>Paste a save code. It <b>replaces '+esc(islandName(ISL_ID))+'</b> on this device.</p>'+
+    '<textarea id="loadBox" placeholder="RIz…"></textarea><p id="loadErr" style="color:var(--bad);font-size:14px"></p>'+
+    '<button class="btn" data-m="load">📥 Bring it in</button><button class="btn ghost" data-m="close">Cancel</button>',
+    async function(act){
+      if(act!=='load') return;
+      try{
+        const isl=await readCode($('loadBox').value);
+        isl.name=islandName(ISL_ID); isl.seen=Date.now();
+        ISL=isl; DATA.islands[ISL_ID]=packIsland(isl); saveNow();
+        sheetB=null; buildTerrain(); linkBelts();
+        if(isl.cam) cam=Object.assign({},isl.cam); else homeCam(); clampCam();
+        closeModal(); refreshHud(true); toast('Island brought in! 🏝️');
+      }catch(e){ $('loadErr').textContent=e.message; }
+    });
+}
+
+/* ---------------- picking a player ---------------- */
+let newColor=COLORS[0];
+function progressText(id){
+  const s=DATA.islands[id];
+  if(!s) return 'New island';
+  if(s.launched) return '🚀 Launched!';
+  if(s.goal>=GOALS.length) return '🚀 Ready to launch!';
+  return 'Goal '+(s.goal+1)+' of '+GOALS.length+' · '+GOALS[s.goal].title;
+}
+function renderRoster(){
+  let h=DATA.readers.map(p=>'<button class="who" data-p="'+p.id+'"><span class="av" style="background:'+p.color+'">🤖</span><span><div class="nm">'+esc(p.name)+'</div><div class="pg">'+progressText(p.id)+'</div></span></button>').join('');
+  h+='<button class="who family" data-p="'+FAMILY+'"><span class="av" style="background:#2FE39B">🏝️</span><span><div class="nm">Family island</div><div class="pg">Everyone builds together · '+progressText(FAMILY)+'</div></span></button>';
+  h+='<button class="who addp" id="addOpen">+ Add a player</button>'+
+    '<div class="addform" id="addForm"><input id="addName" maxlength="16" placeholder="Name" autocomplete="off">'+
+    '<div class="swatches">'+COLORS.map(c=>'<button class="sw'+(c===newColor?' on':'')+'" data-c="'+c+'" style="background:'+c+'" aria-label="Color"></button>').join('')+'</div>'+
+    '<button class="btn" id="addGo">Add</button></div>';
+  $('roster').innerHTML=h;
+}
+function onRosterClick(e){
+  const p=e.target.closest('[data-p]');
+  if(p) return startGame(p.dataset.p);
+  const sw=e.target.closest('[data-c]');
+  if(sw){ newColor=sw.dataset.c; document.querySelectorAll('.sw').forEach(x=>x.classList.toggle('on',x===sw)); return; }
+  if(e.target.closest('#addOpen')){ $('addForm').classList.add('on'); $('addOpen').style.display='none'; $('addName').focus(); return; }
+  if(e.target.closest('#addGo')){
+    const name=$('addName').value.trim().slice(0,16);
+    if(!name) return $('addName').focus();
+    const p={id:uid(),name:name,color:newColor};
+    DATA.readers.push(p); save(); startGame(p.id);
+  }
+}
+function showPicker(){
+  if(ISL){ saveNow(); DATA.islands[ISL_ID]=packIsland(ISL); }
+  running=false; ISL=null; ISL_ID=null; closeSheet(); setMode('none');
+  renderRoster(); $('pick').classList.add('on');
+}
+function startGame(id){
+  const away=openIsland(id);
+  $('pick').classList.remove('on');
+  mode={t:'none'}; ghost=null; path=null; sheetB=null; HTML_CACHE.tools=null;
+  buildTerrain(); linkBelts();
+  if(ISL.cam) cam=Object.assign({},ISL.cam); else homeCam();
+  clampCam(); refreshHud(true);
+  running=true; lastT=performance.now(); acc=0;
+  save();
+  if(away&&Object.keys(away.items).length) showAway(away);
+  else if(ISL.b.length===1&&ISL.tick===0) showHelp();
+}
+
+/* ---------------- the main loop ---------------- */
+function frame(now){
+  requestAnimationFrame(frame);
+  if(!running||!ISL) return;
+  let dt=now-lastT; lastT=now;
+  if(dt>3000){ const a=creditAway(ISL,dt); if(a&&Object.keys(a.items).length) showAway(a); dt=0; }
+  acc+=dt;
+  let n=0;
+  while(acc>=TICK_MS&&n<8){ step(ISL); acc-=TICK_MS; n++; }
+  if(n===8) acc=0;
+  if(camGoal){ cam.x+=(camGoal.x-cam.x)*0.25; cam.y+=(camGoal.y-cam.y)*0.25; clampCam(); if(Math.abs(camGoal.y-cam.y)<0.02) camGoal=null; }
+  if(ISL.changed) linkBelts();
+  while(ISL.ev.length) onGoal(ISL.ev.shift());
+  if(now-lastDraw>=32){ lastDraw=now; render(now); }
+  if(now-lastHud>=300){ lastHud=now; refreshHud(); if(sheetB) renderSheetLive(); }
+}
+
+function startUI(){
+  cv=$('world'); ctx=cv.getContext('2d');
+  resize();
+  addEventListener('resize',resize);
+  cv.addEventListener('pointerdown',onDown);
+  cv.addEventListener('pointermove',onMove);
+  cv.addEventListener('pointerup',e=>onUp(e,false));
+  cv.addEventListener('pointercancel',e=>onUp(e,true));
+  cv.addEventListener('pointerleave',e=>{ if(e.pointerType==='mouse'&&!PTR.has(e.pointerId)) ghost=null; });
+  cv.addEventListener('wheel',onWheel,{passive:false});
+  cv.addEventListener('contextmenu',e=>e.preventDefault());
+  $('tools').addEventListener('click',e=>{ const t=e.target.closest('[data-tool]'); if(t) pickTool(t.dataset.tool); });
+  $('rotBtn').onclick=()=>{ rot=(rot+1)%4; };
+  $('doneBtn').onclick=()=>setMode('none');
+  $('who').onclick=showMenu;
+  $('goal').onclick=()=>{ if(ISL.goal>=GOALS.length&&!ISL.launched) showLaunch(); else if(ISL.goal<GOALS.length) modal('<div class="big">🎯</div><h2>'+GOALS[ISL.goal].title+'</h2><p>'+GOALS[ISL.goal].hint+'</p><button class="btn" data-m="close">OK</button>'); };
+  $('sheet').addEventListener('click',onSheetClick);
+  $('modal').addEventListener('click',onModalClick);
+  $('roster').addEventListener('click',onRosterClick);
+  $('roster').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.id==='addName') $('addGo').click(); });
+  addEventListener('keydown',function(e){
+    if(!running||e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+    if(e.key==='r'||e.key==='R') rot=(rot+1)%4;
+    else if(e.key==='Escape'){ if(modalOpen()) closeModal(); else if(sheetB) closeSheet(); else setMode('none'); }
+  });
+  document.addEventListener('visibilitychange',function(){
+    if(!ISL) return;
+    if(document.hidden){ hiddenAt=Date.now(); saveNow(); }
+    else if(hiddenAt){
+      const a=creditAway(ISL,Date.now()-hiddenAt); hiddenAt=0;
+      lastT=performance.now(); acc=0;
+      if(a&&Object.keys(a.items).length) showAway(a);
+    }
+  });
+  addEventListener('pagehide',saveNow);
+  setInterval(function(){ if(running) save(); },5000);
+  loadEmojiFont();
+  addEventListener('load',loadEmojiFont);
+  if(document.fonts) document.fonts.addEventListener&&document.fonts.addEventListener('loadingdone',buildSprites);
+  renderRoster();
+  $('saveNote').textContent=
+    STORE==='memory'?'This browser is blocking storage, so islands will vanish when you close the tab.'
+    :STORE==='claude'?'Islands are saving here. Save this file to your phone or tablet to keep them on your own device.'
+    :'Islands save on this device. Use a save code to move one to another device.';
+  requestAnimationFrame(frame);
+}
+
+/* ---------------- boot ---------------- */
+(async function boot(){
+  if(typeof window!=='undefined'&&window.__TEST__) return;
+  const saved=await load();
+  if(saved){
+    if(Array.isArray(saved.readers)) DATA.readers=saved.readers;
+    else if(Array.isArray(saved.players)) DATA.readers=saved.players;
+    if(saved.islands&&typeof saved.islands==='object') DATA.islands=saved.islands;
+    DATA.last=saved.last||null;
+  }
+  heal();
+  startUI();
+})();
+</script>
+</body>
+</html>
