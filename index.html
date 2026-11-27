@@ -41,6 +41,8 @@ button:focus-visible{outline:3px solid #fff;outline-offset:2px}
 .goal-head{display:flex;gap:8px;align-items:baseline;white-space:nowrap;overflow:hidden}
 .goal-num{font-family:var(--display);font-size:11px;letter-spacing:.08em;color:var(--gold);flex:none}
 .goal-title{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis}
+.goal-eta{margin-left:auto;font-size:12px;color:var(--muted);flex:none}
+.sto .rate{font-size:11px;color:var(--go);margin-left:4px;font-weight:700}
 .needs{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
 .need{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:700}
 .need .bar{width:54px;height:7px;border-radius:4px;background:rgba(255,255,255,.18);overflow:hidden}
@@ -536,19 +538,21 @@ function unlocked(isl,type){
 }
 function unlockGoal(type){ return GOALS.findIndex(x=>x.unlock===type); }
 
-// self: a building that may overlap itself (when checking whether it can turn).
-function fits(isl,type,x,y,r,self){
-  const [w,h]=dims(type,r|0);
+// self: buildings it may overlap (an id, or a test of ids), e.g. itself when checking a turn.
+// over: it may go on top of belts (they get picked up first).
+function fits(isl,type,x,y,r,self,over){
+  const [w,h]=dims(type,r|0), skip=typeof self==='function'?self:(id=>id===self);
   for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++){
-    const o=inMap(xx,yy)?isl.occ[yy*N+xx]:0;
-    if(!inMap(xx,yy)||!isl.map.ground[yy*N+xx]||(o&&o!==self)) return false;
+    if(!inMap(xx,yy)||!isl.map.ground[yy*N+xx]) return false;
+    const o=isl.occ[yy*N+xx];
+    if(o&&!skip(o)&&!(over&&isl.byId.get(o).t==='belt')) return false;
   }
   return true;
 }
 // Why something can't go here (or null when it can).
-function placeProblem(isl,type,x,y,r){
+function placeProblem(isl,type,x,y,r,over){
   if(!unlocked(isl,type)) return 'locked';
-  if(!fits(isl,type,x,y,r)) return 'blocked';
+  if(!fits(isl,type,x,y,r,null,over&&type!=='belt')) return 'blocked';
   if(type==='drill'&&!drillInfo(isl,{x,y}).cov) return 'nores';
   if(!(isl.free[type]>0)&&!has(isl.store,BUILD[type].cost)) return 'cost';
   return null;
@@ -591,15 +595,83 @@ function setRecipe(isl,b,id){
 }
 // Pointing a building another way. A long machine swings around its top-left square, so some ways
 // may not fit.
-function canFace(isl,b,r){ return b.t!=='rocket'&&(r===b.r||fits(isl,b.t,b.x,b.y,r,b.i)); }
+function canFace(isl,b,r){
+  const mine=b.stubs||[];
+  return b.t!=='rocket'&&(r===b.r||fits(isl,b.t,b.x,b.y,r,id=>id===b.i||mine.indexOf(id)>=0));
+}
 function face(isl,b,r){
   r=((r|0)%4+4)%4;
   if(!canFace(isl,b,r)) return false;
   if(r===b.r) return true;
+  const stubs=b.stubs&&b.stubs.length;
+  if(stubs) dropStubs(isl,b);
   unindex(isl,b);
   b.r=r; const d=dims(b.t,r); b.w=d[0]; b.h=d[1];
   index(isl,b);
+  if(stubs) b.stubs=addStubs(isl,b);
   return true;
+}
+
+/* ---------------- buildings come with their belts ---------------- */
+// A new building brings a belt into each of its squares from behind (one per input) and a belt out of
+// the middle of its arrow side. Squares that already have something are left alone, so a building
+// dropped onto a belt line just joins it.
+function stubPlan(isl,type,x,y,r){
+  if(type==='belt'||type==='rocket') return [];
+  const [w,h]=dims(type,r), inside=(tx,ty)=>tx>=x&&tx<x+w&&ty>=y&&ty<y+h;
+  const open=(tx,ty)=>inMap(tx,ty)&&!!isl.map.ground[ty*N+tx]&&!isl.occ[ty*N+tx]&&!inside(tx,ty);
+  const plan=[], out=outTiles({x,y,w,h,r});
+  if(!out.some(p=>at(isl,p[0],p[1]))){ const p=out[Math.floor((out.length-1)/2)]; if(open(p[0],p[1])) plan.push({x:p[0],y:p[1],r}); }
+  if(type!=='drill') for(const p of outTiles({x,y,w,h,r:(r+2)%4})) if(open(p[0],p[1])) plan.push({x:p[0],y:p[1],r});
+  return plan;
+}
+function addStubs(isl,b){
+  const ids=[];
+  for(const p of stubPlan(isl,b.t,b.x,b.y,b.r)){ const sb=place(isl,'belt',p.x,p.y,p.r); if(!sb) break; ids.push(sb.i); }
+  return ids;
+}
+function dropStubs(isl,b){
+  for(const id of b.stubs||[]){ const sb=isl.byId.get(id); if(sb) removeB(isl,sb); }
+  b.stubs=[];
+}
+// Placing a building, belts and all. Belts under it are picked up (and given back), and remembered so
+// Undo can put the line back.
+function placeOver(isl,type,x,y,r){
+  if(placeProblem(isl,type,x,y,r,true)) return null;
+  const [w,h]=dims(type,r), under=[];
+  for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++){
+    const o=at(isl,xx,yy);
+    if(o&&o.t==='belt'){ under.push({x:o.x,y:o.y,r:o.r}); removeB(isl,o); }
+  }
+  const b=place(isl,type,x,y,r);
+  if(!b){ for(const u of under) place(isl,'belt',u.x,u.y,u.r); return null; }
+  b.under=under; b.stubs=addStubs(isl,b);
+  return b;
+}
+// Moving a building: it keeps everything (recipe, what it holds) and gets new belts where it lands,
+// like a new one. It may land on belts, and on its own old spot.
+function moveProblem(isl,b,x,y,r){
+  if(b.t==='rocket') return 'rocket';
+  if(!fits(isl,b.t,x,y,r,b.i,true)) return 'blocked';
+  if(b.t==='drill'&&!drillInfo(isl,{x,y}).cov) return 'nores';
+  return null;
+}
+function moveB(isl,b,x,y,r){
+  r=((r|0)%4+4)%4;
+  if(moveProblem(isl,b,x,y,r)) return false;
+  unindex(isl,b);
+  const [w,h]=dims(b.t,r);
+  for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++){ const o=at(isl,xx,yy); if(o&&o.t==='belt') removeB(isl,o); }
+  Object.assign(b,{x,y,r,w,h,o:0});
+  index(isl,b);
+  b.stubs=addStubs(isl,b);
+  return true;
+}
+function undoPlace(isl,b){
+  dropStubs(isl,b);
+  const under=b.under||[];
+  removeB(isl,b);
+  for(const u of under) place(isl,'belt',u.x,u.y,u.r);
 }
 // Turning goes to the next way it fits.
 function turn(isl,b){
@@ -665,9 +737,11 @@ function give(isl,t,k,T,fx,fy){
   return true;
 }
 
+function setStatus(b,st){ if(b.st===st) b.stT++; else { b.st=st; b.stT=0; } }
 function runMachine(isl,b,T){
   if(b.t==='drill'){
-    if(b.cov&&count(b.out)<4){ b.p+=speedOf(isl,'drill'); if(b.p>=DRILL_T[b.cov]){ b.p=0; add(b.out,b.res,1); } }
+    if(b.cov&&count(b.out)<4){ b.p+=speedOf(isl,'drill'); if(b.p>=DRILL_T[b.cov]){ b.p=0; add(b.out,b.res,1); b.mk=(b.mk||0)+1; } }
+    setStatus(b,count(b.out)>=4?'full':'ok');
   } else if(RECIPES[b.t]){
     if(!b.cr){
       let rc=null;
@@ -677,13 +751,14 @@ function runMachine(isl,b,T){
       } else { const x=recipe(b.t,b.rc); if(x&&has(b.in,x.in)) rc=x; }
       if(rc&&count(b.out)+rc.n<=OUT_MAX){
         for(const k in rc.in) b.in[k]-=rc.in[k];
-        b.cr=rc.id; b.p=0;
+        b.cr=rc.id; b.p=0; b.last=rc.id;
       }
-    }
+      setStatus(b,b.cr?'ok':rc?'full':(b.t!=='furnace'&&!b.rc)?'none':'wait');
+    } else setStatus(b,'ok');
     if(b.cr){
       const rc=recipe(b.t,b.cr);
       b.p+=speedOf(isl,b.t);
-      if(b.p>=rc.t){ add(b.out,rc.out,rc.n); b.cr=null; b.p=0; }
+      if(b.p>=rc.t){ add(b.out,rc.out,rc.n); b.mk=(b.mk||0)+rc.n; b.cr=null; b.p=0; }
     }
   }
   if(b.t!=='rocket') pushOut(isl,b,T);
@@ -725,7 +800,10 @@ function step(isl){
   const T=++isl.tick, speed=BELT_SPEED*speedOf(isl,'belt');
   for(const b of isl.b) if(b.t!=='belt') runMachine(isl,b,T);
   for(const b of isl.b) if(b.t==='belt') moveBelt(isl,b,T,speed);
-  if(T%(TPS*HIST_BUCKET_S)===0){ isl.hist.push(isl.cur); isl.cur={}; if(isl.hist.length>HIST_LEN) isl.hist.shift(); }
+  if(T%(TPS*HIST_BUCKET_S)===0){
+    isl.hist.push(isl.cur); isl.cur={}; if(isl.hist.length>HIST_LEN) isl.hist.shift();
+    for(const b of isl.b) if(b.t!=='belt'&&b.t!=='rocket'){ (b.mh=b.mh||[]).push(b.mk||0); b.mk=0; if(b.mh.length>6) b.mh.shift(); }
+  }
   if(T%TPS===0) checkGoals(isl);
 }
 
@@ -736,6 +814,14 @@ function checkGoals(isl){
     for(const k in GOAL_GIFT) add(isl.free,k,GOAL_GIFT[k]);
     isl.ev.push({goal:isl.goal-1,unlock:g.unlock||null});
   }
+}
+
+// What a machine has made a minute lately (over the last minute), and the most it can make.
+function madePerMin(b){ const h=b.mh||[]; if(!h.length) return 0; let n=0; for(const v of h) n+=v; return n*60/(h.length*HIST_BUCKET_S); }
+function maxPerMin(isl,b){
+  if(b.t==='drill') return b.cov?60*TPS*speedOf(isl,'drill')/DRILL_T[b.cov]:0;
+  const rc=recipe(b.t,b.t==='furnace'?(b.cr||b.last||'ironbar'):b.rc);
+  return rc?60*TPS*speedOf(isl,b.t)*rc.n/rc.t:0;
 }
 
 /* ---------------- while you were away ---------------- */
@@ -817,7 +903,8 @@ const STORE=(function(){
   catch(e){ return 'memory'; }
 })();
 let MEM=null, saveT=null;
-let DATA={readers:[],islands:{},last:null};
+// revs: the board's revision of each island this device last had; dirty: islands changed here since.
+let DATA={readers:[],islands:{},last:null,revs:{},dirty:{}};
 let ISL=null, ISL_ID=null;   // the open island
 
 async function load(){
@@ -828,8 +915,8 @@ async function load(){
   }catch(e){ return null; }
 }
 function blob(){
-  if(ISL&&ISL_ID){ ISL.seen=Date.now(); DATA.islands[ISL_ID]=packIsland(ISL); }
-  return JSON.stringify({v:1,readers:DATA.readers,islands:DATA.islands,last:DATA.last});
+  if(ISL&&ISL_ID){ ISL.seen=Date.now(); DATA.islands[ISL_ID]=packIsland(ISL); DATA.dirty[ISL_ID]=1; }
+  return JSON.stringify({v:1,readers:DATA.readers,islands:DATA.islands,last:DATA.last,revs:DATA.revs,dirty:DATA.dirty});
 }
 async function write(b){
   try{
@@ -847,6 +934,8 @@ function heal(){
   DATA.readers=(DATA.readers||[]).filter(p=>p&&typeof p.name==='string');
   DATA.readers.forEach(function(p,i){ p.id=p.id||uid(); p.color=p.color||COLORS[i%COLORS.length]; });
   if(!DATA.islands||typeof DATA.islands!=='object') DATA.islands={};
+  if(!DATA.revs||typeof DATA.revs!=='object') DATA.revs={};
+  if(!DATA.dirty||typeof DATA.dirty!=='object') DATA.dirty={};
 }
 function islandName(id){
   if(id===FAMILY) return 'Family island';
@@ -879,7 +968,7 @@ function restartIsland(){
    SCREEN — sprites, drawing, touch, panels
    ================================================================ */
 const EMOJI_FONT="'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol',sans-serif";
-const EMOJI_TEXT='🪵🪨🧱⚙️🔌⚡💾🪟🛡️🔥🚀🛰️➡️⛏️🛠️🏭🌲🤖❓✋🗑️🏝️🎯📋📥🎉🔓🌋🏗️🔬😴🆕🗺️';
+const EMOJI_TEXT='🪵🪨🧱⚙️🔌⚡💾🪟🛡️🔥🚀🛰️➡️⛏️🛠️🏭🌲🤖❓✋🗑️🏝️🎯📋📥🎉🔓🌋🏗️🔬😴🆕🗺️💤⛔☁️';
 const SPR={}, SPR_PX=64, ICON_URL={};
 const $=id=>document.getElementById(id);
 let cv=null, ctx=null, DPR=1, W=0, H=0;   // the canvas, in device pixels
@@ -935,7 +1024,7 @@ function buildSprites(){
   for(const t in BUILD) SPR['b:'+t]=emojiSprite(BUILD[t].e);
   SPR['r:wood']=emojiSprite('🌲'); SPR['r:stone']=emojiSprite('🪨');
   SPR['r:iron']=SPR['i:iron']; SPR['r:copper']=SPR['i:copper'];
-  SPR.robot=emojiSprite('🤖'); SPR.q=emojiSprite('❓');
+  SPR.robot=emojiSprite('🤖'); SPR.q=emojiSprite('❓'); SPR.zz=emojiSprite('💤'); SPR.full=emojiSprite('⛔');
   if(bg) bg.ok=false;
 }
 // Canvas emoji only use the web font once it has loaded, so the sprites are drawn again when it arrives.
@@ -987,7 +1076,10 @@ function resize(){
 const worldAt=(cx,cy)=>({x:cam.x+(cx-innerWidth/2)/cam.z, y:cam.y+(cy-innerHeight/2)/cam.z});
 const tileAt=(cx,cy)=>{ const w=worldAt(cx,cy); return {x:Math.floor(w.x),y:Math.floor(w.y)}; };
 function ghostAt(cx,cy){ const w=worldAt(cx,cy); return ghostFrom(w.x,w.y); }
-function ghostFrom(wx,wy){ const d=dims(mode.type,rot); return {x:Math.round(wx-d[0]/2),y:Math.round(wy-d[1]/2),wx,wy}; }
+function ghostFrom(wx,wy){
+  const t=at(ISL,Math.floor(wx),Math.floor(wy));
+  if(t&&t.t==='belt') rot=t.r;   // dropping onto a belt line: point along it
+  const d=dims(mode.type,rot); return {x:Math.round(wx-d[0]/2),y:Math.round(wy-d[1]/2),wx,wy}; }
 function rotate(){ rot=(rot+1)%4; if(mode.t==='build'&&ghost&&ghost.wx!==undefined) ghost=ghostFrom(ghost.wx,ghost.wy); }
 
 /* ---------------- drawing ---------------- */
@@ -1048,6 +1140,7 @@ function machineMakes(b){
   const rc=recipe(b.t,b.rc); return rc?rc.out:null;
 }
 function working(b){ return b.t==='drill'?b.cov&&count(b.out)<4:!!b.cr; }
+const STATUS_WAIT=TPS*3;   // a machine shows 💤 or ⛔ after 3 seconds stuck
 function drawMachine(b,ox,oy,z,now){
   const x=ox+b.x*z, y=oy+b.y*z, w=b.w*z, h=b.h*z, def=BUILD[b.t];
   if(b.t==='rocket'){
@@ -1080,13 +1173,31 @@ function drawMachine(b,ox,oy,z,now){
   }
   const as=small?z*.16:z*.2;
   arrow(x+w/2+DX[b.r]*(w/2-as),y+h/2+DY[b.r]*(h/2-as),b.r,as,'#fff');
+  if(b.stT>=STATUS_WAIT&&(b.st==='wait'||b.st==='full')){
+    const sr=small?z*.2:z*.26, sx=x+sr+z*.04, sy=y+sr+z*.02;
+    ctx.fillStyle=b.st==='full'?'rgba(255,225,225,.95)':'rgba(255,255,255,.92)'; ctx.beginPath(); ctx.arc(sx,sy,sr,0,7); ctx.fill();
+    ctx.drawImage(b.st==='full'?SPR.full:SPR.zz,sx-sr*.8,sy-sr*.8,sr*1.6,sr*1.6);
+  }
   if(sheetB===b){ ctx.strokeStyle='#FFCB2E'; ctx.lineWidth=Math.max(2,z*.08); rr(ctx,x+z*.03,y+z*.03,w-z*.06,h-z*.06,z*.2); ctx.stroke(); }
 }
 function dirTo(a,b){ return b.x>a.x?0:b.y>a.y?1:b.x<a.x?2:3; }
 function pathDirs(){
   const n=path.length;
   if(n===1) return [rot];
-  return path.map((p,i)=>i<n-1?dirTo(p,path[i+1]):dirTo(path[i-1],p));
+  const dirs=path.map((p,i)=>i<n-1?dirTo(p,path[i+1]):dirTo(path[i-1],p));
+  dirs[n-1]=joinDir(path[n-1],dirs[n-1]);
+  return dirs;
+}
+// Where the last belt points: straight on if something's there (a belt or a building), otherwise into a
+// machine or the rocket beside it (not a drill, and not the building it comes out of).
+function joinDir(p,d){
+  const here=at(ISL,p.x,p.y);
+  if((here&&here.t!=='belt')||at(ISL,p.x+DX[d],p.y+DY[d])) return d;
+  for(const k of [1,3]){
+    const s=(d+k)%4, t=at(ISL,p.x+DX[s],p.y+DY[s]);
+    if(t&&t.t!=='belt'&&t.t!=='drill'&&!outTiles(t).some(q=>q[0]===p.x&&q[1]===p.y)) return s;
+  }
+  return d;
 }
 function bgBuild(z,x0,y0,x1,y1){
   const tw=x1-x0+1, th=y1-y0+1, cw=Math.ceil(tw*z), ch=Math.ceil(th*z);
@@ -1111,6 +1222,21 @@ function bgBuild(z,x0,y0,x1,y1){
   }
   Object.assign(bg,{z,x0,y0,tw,th,ok:true});
 }
+function drawGhost(type,gx,gy,r,bad,ox,oy,z,self){
+  const d=dims(type,r), x=ox+gx*z, y=oy+gy*z, w=d[0]*z, h=d[1]*z;
+  ctx.globalAlpha=0.6;
+  if(!bad) for(const p of stubPlan(ISL,type,gx,gy,r)){
+    if(self&&at(ISL,p.x,p.y)===self) continue;
+    ctx.fillStyle='#FFFFFF'; ctx.fillRect(ox+p.x*z+z*.06,oy+p.y*z+z*.06,z*.88,z*.88);
+    arrow(ox+p.x*z+z/2,oy+p.y*z+z/2,p.r,z*.26,'#2FE39B');
+  }
+  ctx.fillStyle=bad?'#FF5C5C':'#2FE39B'; rr(ctx,x+z*.05,y+z*.05,w-z*.1,h-z*.1,z*.18); ctx.fill();
+  ctx.globalAlpha=0.9;
+  const is=Math.min(w,h)*.56;
+  ctx.drawImage(SPR['b:'+type],x+w/2-is/2,y+h/2-is/2,is,is);
+  arrow(x+w/2+DX[r]*(w/2-z*.2),y+h/2+DY[r]*(h/2-z*.2),r,z*.2,'#fff');
+  ctx.globalAlpha=0.6;
+}
 function render(now){
   const z=cam.z*DPR, ox=W/2-cam.x*z, oy=H/2-cam.y*z;
   ctx.setTransform(1,0,0,1,0,0);
@@ -1129,18 +1255,13 @@ function render(now){
   const frac=Math.min(1,acc/TICK_MS);
   for(const b of seen) if(b.t==='belt') drawBelt(b,ox,oy,z,now);
   for(const b of seen) if(b.t==='belt') drawItems(b,ox,oy,z,frac);
-  for(const b of seen) if(b.t!=='belt') drawMachine(b,ox,oy,z,now);
+  for(const b of seen) if(b.t!=='belt'){ if(lift&&lift.b===b) ctx.globalAlpha=0.35; drawMachine(b,ox,oy,z,now); ctx.globalAlpha=1; }
   if(sheetB&&sheetB.t==='belt'){ ctx.strokeStyle='#FFCB2E'; ctx.lineWidth=Math.max(2,z*.08); ctx.strokeRect(ox+sheetB.x*z+2,oy+sheetB.y*z+2,z-4,z-4); }
   // What you're about to build.
   ctx.globalAlpha=0.6;
-  if(mode.t==='build'&&ghost){
-    const d=dims(mode.type,rot), bad=placeProblem(ISL,mode.type,ghost.x,ghost.y,rot), x=ox+ghost.x*z, y=oy+ghost.y*z, w=d[0]*z, h=d[1]*z;
-    ctx.fillStyle=bad?'#FF5C5C':'#2FE39B'; rr(ctx,x+z*.05,y+z*.05,w-z*.1,h-z*.1,z*.18); ctx.fill();
-    ctx.globalAlpha=0.9;
-    const is=Math.min(w,h)*.56;
-    ctx.drawImage(SPR['b:'+mode.type],x+w/2-is/2,y+h/2-is/2,is,is);
-    arrow(x+w/2+DX[rot]*(w/2-z*.2),y+h/2+DY[rot]*(h/2-z*.2),rot,z*.2,'#fff');
-  }
+  if(lift) drawGhost(lift.b.t,lift.x,lift.y,lift.r,moveProblem(ISL,lift.b,lift.x,lift.y,lift.r),ox,oy,z,lift.b);
+  else if(mode.t==='build'&&row) for(const g of row) drawGhost(mode.type,g.x,g.y,rot,placeProblem(ISL,mode.type,g.x,g.y,rot,true),ox,oy,z);
+  else if(mode.t==='build'&&ghost) drawGhost(mode.type,ghost.x,ghost.y,rot,placeProblem(ISL,mode.type,ghost.x,ghost.y,rot,true),ox,oy,z);
   if(mode.t==='belt'&&(path||ghost)){
     const tiles=path||[ghost], dirs=path?pathDirs():[rot];
     tiles.forEach(function(p,i){
@@ -1179,12 +1300,18 @@ function onDown(e){
   if(PTR.size===1){
     const pan=mode.t==='none'||(e.pointerType==='mouse'&&e.button!==0);
     G={k:'one',id:e.pointerId,sx:e.clientX,sy:e.clientY,cx:cam.x,cy:cam.y,moved:false,pan};
-    if(pan) return;
+    if(pan){
+      const tt=tileAt(e.clientX,e.clientY), hb=mode.t==='none'&&at(ISL,tt.x,tt.y);
+      if(hb&&hb.t!=='rocket'&&hb.t!=='belt'){ const g=G, cx=e.clientX, cy=e.clientY; g.hold=setTimeout(function(){ if(G===g&&!g.moved) liftUp(hb,cx,cy); },HOLD_MS); }
+      return;
+    }
     if(mode.t==='belt'){ ghost=null; path=null; extendPath(tileAt(e.clientX,e.clientY)); }
-    else if(mode.t==='build') ghost=ghostAt(e.clientX,e.clientY);
+    else if(mode.t==='build'){ ghost=ghostAt(e.clientX,e.clientY); row=null; if(mode.type==='drill') G.row0={x:ghost.x,y:ghost.y}; }
     else if(mode.t==='remove') removeAt(tileAt(e.clientX,e.clientY),false);
   } else if(PTR.size===2){
-    path=null; if(mode.t==='build') ghost=null;   // a second finger means moving the map, not building
+    path=null; row=null; if(mode.t==='build') ghost=null;   // a second finger means moving the map, not building
+    if(G&&G.hold) clearTimeout(G.hold);
+    lift=null;
     const m=mid2(); G={k:'two',d:m.d,z:cam.z,w:worldAt(m.x,m.y)};
   }
 }
@@ -1205,20 +1332,24 @@ function onMove(e){
     return;
   }
   if(!G||G.k!=='one'||G.id!==e.pointerId) return;
-  if(Math.hypot(e.clientX-G.sx,e.clientY-G.sy)>8) G.moved=true;
+  if(Math.hypot(e.clientX-G.sx,e.clientY-G.sy)>8&&!G.moved){ G.moved=true; clearTimeout(G.hold); }
+  if(lift){ liftTo(e.clientX,e.clientY); return; }
   if(G.pan){ cam.x=G.cx-(e.clientX-G.sx)/cam.z; cam.y=G.cy-(e.clientY-G.sy)/cam.z; clampCam(); trackCam(); }
   else if(mode.t==='belt') extendPath(tileAt(e.clientX,e.clientY));
-  else if(mode.t==='build') ghost=ghostAt(e.clientX,e.clientY);
+  else if(mode.t==='build'){ ghost=ghostAt(e.clientX,e.clientY); if(G.row0){ const r2=rowFrom(G.row0,ghost); row=r2.length>1?r2:null; } }
   else if(mode.t==='remove') removeAt(tileAt(e.clientX,e.clientY),true);
 }
 function onUp(e,cancel){
   if(!PTR.has(e.pointerId)) return;
   PTR.delete(e.pointerId);
   if(G&&G.k==='one'&&G.id===e.pointerId){
-    if(cancel) path=null;
+    clearTimeout(G.hold);
+    if(lift){ if(cancel) lift=null; else liftDown(); G=null; return; }
+    if(cancel){ path=null; row=null; }
+    else if(row&&row.length>1){ placeRow(); row=null; if(e.pointerType!=='mouse') ghost=null; }
     else if(G.pan){ if(!G.moved&&mode.t==='none') tapAt(tileAt(e.clientX,e.clientY)); else fling(); }
     else if(mode.t==='belt') commitPath();
-    else if(mode.t==='build'){ placeGhost(); if(e.pointerType!=='mouse') ghost=null; }
+    else if(mode.t==='build'){ row=null; placeGhost(); if(e.pointerType!=='mouse') ghost=null; }
     G=null;
   } else if(G&&G.k==='two'&&PTR.size===1){
     G=panFrom([...PTR.keys()][0]);   // lifting one finger: keep moving the map with the other
@@ -1267,15 +1398,70 @@ function commitPath(){
   else if(water) toast('Belts can’t go on water.');
   path=null; refreshHud(); save();
 }
-const WHY={blocked:'That spot is taken, or it’s water.',nores:'Drills go on trees 🌲, rocks 🪨 or ore.'};
+const WHY={rocket:'The rocket stays!',blocked:'That spot is taken, or it’s water.',nores:'Drills go on trees 🌲, rocks 🪨 or ore.'};
+const HOLD_MS=450;
+let lift=null;   // a building being moved: {b, x, y, r}
+let row=null;    // a row of drills being dragged out: [{x,y}, ...]
+function liftUp(b,cx,cy){
+  closeSheet();
+  lift={b,x:b.x,y:b.y,r:b.r};
+  try{ if(navigator.vibrate) navigator.vibrate(25); }catch(e){}
+  liftTo(cx,cy);
+  toast('Moving the '+BUILD[b.t].name.toLowerCase()+'. Let go where it goes.');
+}
+function liftTo(cx,cy){
+  const w=worldAt(cx,cy), t=at(ISL,Math.floor(w.x),Math.floor(w.y));
+  if(t&&t.t==='belt') lift.r=t.r;   // over a belt line: run along it
+  const d=dims(lift.b.t,lift.r);
+  lift.x=Math.round(w.x-d[0]/2); lift.y=Math.round(w.y-d[1]/2);
+}
+function liftDown(){
+  const l=lift; lift=null;
+  if(l.x===l.b.x&&l.y===l.b.y&&l.r===l.b.r) return;
+  const why=moveProblem(ISL,l.b,l.x,l.y,l.r);
+  if(why) return toast(WHY[why]||'It can’t go there.');
+  moveB(ISL,l.b,l.x,l.y,l.r);
+  refreshHud(); save();
+  openSheet(l.b,'moved');
+}
+// Drills dragged out in a line, a drill's width apart, from where the finger went down.
+function rowFrom(start,g){
+  const dx=g.x-start.x, dy=g.y-start.y, [w,h]=dims('drill',rot), out=[];
+  const across=Math.abs(dx)>=Math.abs(dy), n=Math.floor(Math.abs(across?dx:dy)/(across?w:h));
+  for(let k=0;k<=n;k++) out.push(across?{x:start.x+Math.sign(dx)*k*w,y:start.y}:{x:start.x,y:start.y+Math.sign(dy)*k*h});
+  return out;
+}
+function placeRow(){
+  let n=0, short=false;
+  for(const g of row){
+    const why=placeProblem(ISL,mode.type,g.x,g.y,rot,true);
+    if(why==='cost'){ short=true; break; }
+    if(why) continue;
+    const b=placeOver(ISL,mode.type,g.x,g.y,rot);
+    if(b){ b.stubs=[]; b.under=null; n++; }
+  }
+  refreshHud(); save();
+  if(short) toast((n?'Placed '+n+'. ':'')+'Need '+costHtml(missing(ISL,mode.type))+' more for the next one');
+  else toast(n?'Placed '+n+' drills':WHY.nores);
+  if(!mode.copy) setMode('none');
+}
+// Copying a building: keep placing ones that point the same way and make the same thing.
+function startCopy(b){
+  closeSheet();
+  if(!unlocked(ISL,b.t)) return;
+  rot=b.r;
+  setMode('build',b.t,{rc:b.rc});
+  toast('Tap to place copies. ✓ Done when you’re finished.');
+}
 function placeGhost(){
   if(!ghost) return;
-  const type=mode.type, why=placeProblem(ISL,type,ghost.x,ghost.y,rot);
+  const type=mode.type, why=placeProblem(ISL,type,ghost.x,ghost.y,rot,true);
   if(why==='cost') return toast('Need '+costHtml(missing(ISL,type))+' more in the rocket');
   if(why==='locked') return toast('Finish goal '+(unlockGoal(type)+1)+' to unlock this');
   if(why) return toast(WHY[why]);
-  const b=place(ISL,type,ghost.x,ghost.y,rot);
+  const b=placeOver(ISL,type,ghost.x,ghost.y,rot);
   refreshHud(); save();
+  if(mode.copy){ if(mode.copy.rc) setRecipe(ISL,b,mode.copy.rc); b.stubs=[]; b.under=null; return; }
   setMode('none'); openSheet(b,true);
 }
 function removeAt(t,drag){
@@ -1288,8 +1474,8 @@ function removeAt(t,drag){
 function tapAt(t){ const b=at(ISL,t.x,t.y); if(b) openSheet(b); else closeSheet(); }
 
 /* ---------------- tools ---------------- */
-function setMode(t,type){
-  mode={t:t,type:type}; ghost=null; path=null;
+function setMode(t,type,copy){
+  mode={t:t,type:type,copy:copy||null}; ghost=null; path=null; row=null; lift=null;
   if(t!=='none') closeSheet();
   refreshHud(true);
 }
@@ -1317,21 +1503,36 @@ function pickTool(id){
   setMode(id==='belt'?'belt':'build',id);
 }
 const MODE_TEXT={
+  drill:'Tap where it goes, or drag to put down a row of drills.',
   belt:'Drag to lay a belt. Tap a belt to turn it. Two fingers move the map.',
-  build:'Tap where it goes. You can point its arrow next.',
+  build:'Tap where it goes. It comes with belts, and you can drop it onto a belt line.',
   remove:'Tap or drag over things to take them away. You get back everything.',
 };
 
 /* ---------------- top bar ---------------- */
 const HTML_CACHE={};
 function setHTML(id,html){ if(HTML_CACHE[id]!==html){ HTML_CACHE[id]=html; $(id).innerHTML=html; } }
+const perMin=n=>n>=10?String(Math.round(n)):n>0?n.toFixed(1).replace(/\.0$/,''):'0';
+// Minutes until the goal is done at the rocket's current intake (null if something isn't arriving).
+function goalEta(){
+  const g=GOALS[ISL.goal]; let worst=0;
+  for(const k in g.need){
+    const left=g.need[k]-(ISL.got[k]||0), r=rateOf(ISL,k)*60;
+    if(left<=0) continue;
+    if(!(r>0)) return null;
+    worst=Math.max(worst,left/r);
+  }
+  return worst;
+}
 function goalHtml(){
   if(ISL.goal>=GOALS.length){
     return ISL.launched?'<div class="goal-head"><span class="goal-num">DONE</span><span class="goal-title">🌋 A new place is coming soon!</span></div>'
       :'<div class="goal-head"><span class="goal-title">🚀 Rocket repaired! Tap to launch!</span></div>';
   }
   const g=GOALS[ISL.goal];
-  return '<div class="goal-head"><span class="goal-num">GOAL '+(ISL.goal+1)+'/'+GOALS.length+'</span><span class="goal-title">'+g.title+'</span></div><div class="needs">'+
+  const eta=goalEta();
+  return '<div class="goal-head"><span class="goal-num">GOAL '+(ISL.goal+1)+'/'+GOALS.length+'</span><span class="goal-title">'+g.title+'</span>'+
+    (eta!==null&&eta>0?'<span class="goal-eta">⏱ '+(eta<1?'under a minute':'about '+Math.ceil(eta)+' min')+'</span>':'')+'</div><div class="needs">'+
     Object.keys(g.need).map(function(k){
       const have=Math.min(g.need[k],ISL.got[k]||0), done=have>=g.need[k];
       return '<span class="need'+(done?' done':'')+'">'+icon(k)+have+'/'+g.need[k]+'<span class="bar"><i style="width:'+Math.round(100*have/g.need[k])+'%"></i></span></span>';
@@ -1347,7 +1548,7 @@ function refreshHud(force){
   setHTML('store',ITEM_ORDER.filter(k=>ISL.store[k]>0).map(k=>'<span class="sto">'+icon(k)+fmt(ISL.store[k])+'</span>').join(''));
   setHTML('tools',toolsHtml());
   $('upBtn').classList.toggle('ready',canUpgrade(ISL));
-  const mt=mode.t==='none'?'':MODE_TEXT[mode.t];
+  const mt=mode.t==='none'?'':mode.copy?'Tap to place copies: same way, same recipe. ✓ Done when you’re finished.':mode.type==='drill'?MODE_TEXT.drill:MODE_TEXT[mode.t];
   $('modeBar').className=mt?'on':'';
   setHTML('modeText',mt);
   $('rotBtn').style.display=mode.t==='belt'?'':'none';
@@ -1359,11 +1560,11 @@ const fmt=n=>n>=10000?Math.floor(n/1000)+'k':String(n);
 let camGoal=null;
 let sheetNew=false;   // the panel is for something just placed
 function openSheet(b,placed){
-  sheetB=b; sheetNew=!!placed; renderSheet(); $('sheet').classList.add('on');
+  sheetB=b; sheetNew=placed||false; renderSheet(); $('sheet').classList.add('on');
   const sy=innerHeight/2+(b.y+b.h/2-cam.y)*cam.z, want=innerHeight*0.28;
   if(sy>innerHeight*0.4) camGoal={x:cam.x,y:cam.y+(sy-want)/cam.z};
 }
-function closeSheet(){ sheetB=null; $('sheet').classList.remove('on'); }
+function closeSheet(){ if(sheetB&&sheetNew){ sheetB.stubs=[]; sheetB.under=null; } sheetB=null; sheetNew=false; $('sheet').classList.remove('on'); }
 function rcpHtml(rc,on,pick){
   return '<'+(pick?'button data-rc="'+rc.id+'"':'div')+' class="rcp'+(on?' on':'')+'">'+
     Object.keys(rc.in).map(k=>rc.in[k]+icon(k)).join(' + ')+' <span class="arrow">➜</span> '+(rc.n>1?rc.n:'')+icon(rc.out)+
@@ -1377,11 +1578,11 @@ function padHtml(b){
 }
 function renderSheet(){
   const b=sheetB, d=BUILD[b.t];
-  let h='<div class="sh-head"><span class="big ic">'+d.e+'</span><h2>'+(sheetNew?d.name+' placed!':d.name)+'</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>';
+  let h='<div class="sh-head"><span class="big ic">'+d.e+'</span><h2>'+(sheetNew==='moved'?d.name+' moved!':sheetNew?d.name+' placed!':d.name)+'</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>';
   if(b.t!=='rocket') h+='<div class="sh-row">'+padHtml(b)+'<p class="sh-line">'+(sheetNew?'<b>Which way should things come out?</b> Tap an arrow.':'Things come out of the arrow side. Tap an arrow to point it another way.')+'</p></div>';
   if(sheetNew){
-    if(RECIPES[b.t]&&b.t!=='furnace') h+='<p class="sh-line"><b>What should it make?</b></p><div class="recipes">'+RECIPES[b.t].map(rc=>rcpHtml(rc,b.rc===rc.id,true)).join('')+'</div>';
-    h+='<div class="sh-btns"><button class="mbtn go" data-act="close">✓ Done</button><button class="mbtn" data-act="remove">↩️ Undo</button></div>';
+    if(RECIPES[b.t]&&b.t!=='furnace'&&sheetNew!=='moved') h+='<p class="sh-line"><b>What should it make?</b></p><div class="recipes">'+RECIPES[b.t].map(rc=>rcpHtml(rc,b.rc===rc.id,true)).join('')+'</div>';
+    h+='<div class="sh-btns"><button class="mbtn go" data-act="close">✓ Done</button>'+(sheetNew==='moved'?'':'<button class="mbtn" data-act="remove">↩️ Undo</button>')+'</div>';
     $('sheet').innerHTML=h; HTML_CACHE.shLive=null;
     return;
   }
@@ -1398,7 +1599,8 @@ function renderSheet(){
   }
   if(UP[b.t]){ const u=UP[b.t], l=ISL.up[b.t]|0; h+='<p class="sh-line">Speed: <b>×'+speedOf(ISL,b.t)+'</b>'+(l<u.cost.length?' · 🔬 <button class="linkbtn" data-act="tree">Upgrade it</button>':' (fastest!)')+'</p>'; }
   h+='<div id="shLive"></div>';
-  if(b.t!=='rocket') h+='<div class="sh-btns"><button class="mbtn" data-act="remove">🗑️ Remove</button></div>';
+  if(b.t!=='rocket') h+='<div class="sh-btns">'+(b.t!=='belt'?'<button class="mbtn" data-act="copy">📋 Copy</button>':'')+'<button class="mbtn" data-act="remove">🗑️ Remove</button></div>'+
+    (b.t!=='belt'?'<p class="sh-line" style="font-size:13px;color:var(--muted);margin-top:8px">Tip: press and hold a building to move it.</p>':'');
   $('sheet').innerHTML=h; HTML_CACHE.shLive=null;
   renderSheetLive();
 }
@@ -1419,12 +1621,13 @@ function renderSheetLive(){
   let h='';
   if(b.t==='rocket'){
     const ks=ITEM_ORDER.filter(k=>ISL.store[k]>0);
-    h+='<div class="grid-items">'+(ks.length?ks.map(k=>'<span class="sto">'+icon(k)+ISL.store[k]+'</span>').join(''):'<span class="sh-line">Nothing yet. Belt something in!</span>')+'</div>';
+    h+='<div class="grid-items">'+(ks.length?ks.map(k=>{ const r=rateOf(ISL,k)*60; return '<span class="sto">'+icon(k)+ISL.store[k]+(r>0?'<span class="rate">+'+perMin(r)+'/min</span>':'')+'</span>'; }).join(''):'<span class="sh-line">Nothing yet. Belt something in!</span>')+'</div>';
     h+='<div class="goal-list">'+GOALS.map((g,i)=>'<div class="'+(i<ISL.goal?'done':i===ISL.goal?'now':'')+'">'+(i<ISL.goal?'✅':i===ISL.goal?'🎯':'⬜')+' '+(i+1)+'. '+g.title+
       (g.unlock?' <span style="color:var(--muted)">→ '+BUILD[g.unlock].e+'</span>':'')+'</div>').join('')+'</div>';
   } else {
     const st=statusOf(b);
     if(st) h+='<div class="sh-status '+st[0]+'">'+st[1]+'</div>';
+    if(b.t!=='belt'){ const most=maxPerMin(ISL,b); if(most) h+='<p class="sh-line">Making about <b>'+perMin(madePerMin(b))+' a minute</b> (it can make '+perMin(most)+').</p>'; }
     const list=(o,label)=>{ const ks=Object.keys(o).filter(k=>o[k]>0); return ks.length?'<p class="sh-line">'+label+' '+ks.map(k=>o[k]+icon(k)).join(' ')+'</p>':''; };
     if(b.t==='belt'){ const o={}; b.it.forEach(q=>add(o,q.k,1)); h+=list(o,'On it:'); }
     h+=list(b.in,'Inside:')+list(b.out,'Ready to go out:');
@@ -1441,7 +1644,8 @@ function onSheetClick(e){
   if(act==='close') closeSheet();
   else if(act==='turn'){ turn(ISL,b); save(); }
   else if(act==='tree'){ closeSheet(); openTree(); }
-  else if(act==='remove'){ closeSheet(); removeB(ISL,b); refreshHud(); save(); }
+  else if(act==='copy') startCopy(b);
+  else if(act==='remove'){ const placed=sheetNew; sheetNew=false; closeSheet(); if(placed) undoPlace(ISL,b); else removeB(ISL,b); refreshHud(); save(); }
 }
 
 /* ---------------- pop-ups ---------------- */
@@ -1508,6 +1712,9 @@ function showHelp(){
     '<div>✋ Drag to look around and pinch to zoom. With a tool picked, move the map with two fingers.</div>'+
     '<div>📐 Machines have one square for each thing they need: 🔥 🛠️ are 1, 🏭 is 2, 🏗️ is 3.</div>'+
     '<div>🔬 Upgrades (top right) make belts, drills and machines faster.</div>'+
+    '<div>🧲 New buildings come with belts: one into each square from behind, and one out the front. Drop a building onto a belt line to put it in the line.</div>'+
+    '<div>✋ Press and hold a building to move it. 📋 Copy (in its panel) places more just like it. Drag with a drill to put down a row.</div>'+
+    '<div>💤 on a machine means it\u2019s waiting for something. ⛔ means it\u2019s full: belt its things away.</div>'+
     '<div>🗑️ Taking something away gives back everything it cost.</div>'+
     '<div>😴 Your factory keeps working while you’re away, for up to 8 hours.</div>'+
     '</div><p><b>Right now:</b> '+g.hint+'</p><button class="btn" data-m="close">Let’s build!</button>');
@@ -1622,6 +1829,114 @@ function confirmRestart(){
     });
 }
 
+/* ---------------- islands kept on the kitchen board ---------------- */
+// Played from the chore board (on the Pi), islands are also kept there, so the kitchen tablet and phones
+// at home all have the same ones. Anywhere else (GitHub Pages, a saved copy) the game just saves on the
+// device. One device at a time plays an island; opening it on another asks first, then moves it there.
+const SYNC_URL='/api/game-saves/robot-island';
+let SYNC=false, syncBusy=false, pushing=false, starting=false;
+const DEVICE=(function(){ try{ let d=localStorage.getItem(KEY+':device'); if(!d){ d=uid(); localStorage.setItem(KEY+':device',d); } return d; }catch(e){ return uid(); } })();
+const DEVICE_LABEL=(function(){
+  const u=(typeof navigator!=='undefined'&&navigator.userAgent)||'';
+  return /KF[A-Z]{3,}|Silk/.test(u)?'the kitchen tablet':/iPhone|Android.*Mobile/.test(u)?'a phone':/iPad|Android|Tablet/.test(u)?'a tablet':'a computer';
+})();
+async function api(method,p,body,keep){
+  const ctl=typeof AbortController!=='undefined'?new AbortController():null, t=setTimeout(function(){ if(ctl) ctl.abort(); },8000);
+  try{
+    const r=await fetch(SYNC_URL+p,{method,cache:'no-store',keepalive:!!keep,signal:ctl?ctl.signal:undefined,
+      headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
+    const j=await r.json().catch(()=>null);
+    if(!r.ok||!j) throw new Error((j&&j.error)||'HTTP '+r.status);
+    return j;
+  } finally { clearTimeout(t); }
+}
+const progress=o=>o?(o.goal||0)*1e9+count(o.got||{}):-1;
+const islandPath=id=>'/'+encodeURIComponent(id);
+function takeSaved(id,save){ DATA.islands[id]=save.data; DATA.revs[id]=save.rev; delete DATA.dirty[id]; }
+async function pushIsland(id,data,playing,keep){
+  const r=await api('PUT',islandPath(id),{rev:DATA.revs[id]===undefined?null:DATA.revs[id],data,device:DEVICE,label:DEVICE_LABEL,playing:!!playing},keep);
+  if(r.rev){ DATA.revs[id]=r.rev; delete DATA.dirty[id]; }
+  return r;
+}
+// A player this device knew by another id (each device made its own ids for the board's kids).
+function moveIslandId(from,to){
+  const mine=DATA.islands[from];
+  if(mine&&(!DATA.islands[to]||progress(mine)>progress(DATA.islands[to]))){ DATA.islands[to]=mine; DATA.dirty[to]=1; delete DATA.revs[to]; }
+  delete DATA.islands[from]; delete DATA.revs[from]; delete DATA.dirty[from];
+  if(DATA.last===from) DATA.last=to;
+}
+// Brings this device and the board up to date: players both ways, then each island. When both sides
+// changed an island, the one further along wins.
+async function syncAll(){
+  if(syncBusy) return;
+  syncBusy=true;
+  try{
+    const srv=await api('GET','');
+    SYNC=true;
+    const same=(a,b)=>a.trim().toLowerCase()===b.trim().toLowerCase();
+    for(const p of DATA.readers){
+      if(srv.players.some(s=>s.id===p.id)) continue;
+      const s=srv.players.filter(q=>same(q.name,p.name))[0];
+      if(s){ moveIslandId(p.id,s.id); p.id=s.id; }
+    }
+    for(const s of srv.players){
+      const p=DATA.readers.filter(r=>r.id===s.id)[0];
+      if(p){ p.name=s.name; p.color=s.color; } else DATA.readers.push({id:s.id,name:s.name,color:s.color});
+    }
+    DATA.readers=DATA.readers.filter((p,i)=>DATA.readers.findIndex(q=>q.id===p.id)===i);
+    await api('PUT','/players',{players:DATA.readers.map(p=>({id:p.id,name:p.name,color:p.color}))});
+    const ids=Object.keys(srv.islands).concat(Object.keys(DATA.islands)).filter((id,i,a)=>a.indexOf(id)===i);
+    for(const id of ids){
+      if(id===ISL_ID) continue;   // the island being played syncs as it saves
+      const s=srv.islands[id], mine=DATA.islands[id];
+      if(!s){ await pushIsland(id,mine,false); continue; }
+      if(!mine){ takeSaved(id,s); continue; }
+      const sameRev=DATA.revs[id]===s.rev, dirty=!!DATA.dirty[id];
+      if(sameRev&&!dirty) continue;
+      if(!sameRev&&(!dirty||progress(s.data)>=progress(mine))){ takeSaved(id,s); continue; }
+      DATA.revs[id]=s.rev;
+      const r=await pushIsland(id,mine,false);
+      if(r.conflict) takeSaved(id,r.current);
+    }
+    saveNow();
+  }catch(e){ /* not played from the board, or it isn't answering: this device's saves are enough */ }
+  syncBusy=false;
+  if(!ISL&&$('pick').classList.contains('on')) renderRoster();
+  showSaveNote();
+}
+// While playing: send the island every 15 seconds and when the game is put away.
+async function pushNow(keep){
+  if(!SYNC||!ISL||pushing) return;
+  pushing=true;
+  const id=ISL_ID;
+  ISL.seen=Date.now();
+  const data=packIsland(ISL);
+  DATA.islands[id]=data;
+  try{
+    const r=await pushIsland(id,data,true,keep&&JSON.stringify(data).length<60000);
+    if(r.taken&&ISL_ID===id){ delete DATA.dirty[id]; lostIsland('It was opened on '+r.by+', so it closed here.'); }
+    else if(r.conflict&&ISL_ID===id){ takeSaved(id,r.current); lostIsland('It changed on another device, so it closed here. Open it again to keep playing.'); }
+  }catch(e){}
+  pushing=false;
+}
+function lostIsland(msg){
+  running=false; ISL=null; ISL_ID=null; closeSheet(); closeTree(); setMode('none'); saveNow();
+  renderRoster(); $('pick').classList.add('on');
+  modal('<div class="big">📲</div><h2>Moved to another device</h2><p>'+msg+'</p><button class="btn" data-m="close">OK</button>');
+}
+function askTakeOver(id,by){
+  modal('<div class="big">📲</div><h2>Playing somewhere else</h2><p>'+esc(islandName(id))+' is open on '+esc(by)+' right now. Play it here instead? It will close there.</p>'+
+    '<button class="btn" data-m="take">Play it here</button><button class="btn ghost" data-m="close">Not now</button>',
+    function(act){ if(act==='take'){ closeModal(); startGame(id,true); } });
+}
+function showSaveNote(){
+  $('saveNote').textContent=
+    SYNC?'☁️ Islands are kept on the kitchen board, so they open on any device at home.'
+    :STORE==='memory'?'This browser is blocking storage, so islands will vanish when you close the tab.'
+    :STORE==='claude'?'Islands are saving here. Save this file to your phone or tablet to keep them on your own device.'
+    :'Islands save on this device. Use a save code to move one to another device.';
+}
+
 /* ---------------- picking a player ---------------- */
 let newColor=COLORS[0];
 function progressText(id){
@@ -1654,11 +1969,34 @@ function onRosterClick(e){
   }
 }
 function showPicker(){
-  if(ISL){ saveNow(); DATA.islands[ISL_ID]=packIsland(ISL); }
+  if(ISL){
+    saveNow(); DATA.islands[ISL_ID]=packIsland(ISL);
+    if(SYNC){
+      const id=ISL_ID, data=DATA.islands[id];
+      pushIsland(id,data,false).catch(()=>{}).then(()=>api('POST',islandPath(id)+'/close',{device:DEVICE})).catch(()=>{}).then(syncAll);
+    }
+  }
   closeTree(); running=false; ISL=null; ISL_ID=null; closeSheet(); setMode('none');
   renderRoster(); $('pick').classList.add('on');
 }
-function startGame(id){
+async function startGame(id,take){
+  if(starting) return;
+  starting=true;
+  try{
+    if(SYNC){
+      const r=await api('POST',islandPath(id)+'/open',{device:DEVICE,label:DEVICE_LABEL,take:!!take}).catch(()=>null);
+      if(r&&r.busy) return askTakeOver(id,r.by);
+      if(r&&r.save){
+        const mine=DATA.islands[id], newer=r.save.rev!==DATA.revs[id];
+        if(!mine||(newer&&(!DATA.dirty[id]||progress(r.save.data)>=progress(mine)))) takeSaved(id,r.save);
+        else DATA.revs[id]=r.save.rev;
+      }
+    }
+    beginGame(id);
+    if(SYNC) pushNow();
+  } finally { starting=false; }
+}
+function beginGame(id){
   const away=openIsland(id);
   $('pick').classList.remove('on');
   mode={t:'none'}; ghost=null; path=null; sheetB=null; HTML_CACHE.tools=null;
@@ -1723,24 +2061,23 @@ function startUI(){
   });
   document.addEventListener('visibilitychange',function(){
     if(!ISL) return;
-    if(document.hidden){ hiddenAt=Date.now(); saveNow(); }
+    if(document.hidden){ hiddenAt=Date.now(); saveNow(); pushNow(true); }
     else if(hiddenAt){
       const a=creditAway(ISL,Date.now()-hiddenAt); hiddenAt=0;
       lastT=performance.now(); acc=0;
       if(a&&Object.keys(a.items).length) showAway(a);
     }
   });
-  addEventListener('pagehide',saveNow);
+  addEventListener('pagehide',function(){ saveNow(); pushNow(true); });
   setInterval(function(){ if(running) save(); },5000);
+  setInterval(function(){ if(running) pushNow(); },15000);
   loadEmojiFont();
   addEventListener('load',loadEmojiFont);
   if(document.fonts) document.fonts.addEventListener&&document.fonts.addEventListener('loadingdone',buildSprites);
   renderRoster();
-  $('saveNote').textContent=
-    STORE==='memory'?'This browser is blocking storage, so islands will vanish when you close the tab.'
-    :STORE==='claude'?'Islands are saving here. Save this file to your phone or tablet to keep them on your own device.'
-    :'Islands save on this device. Use a save code to move one to another device.';
+  showSaveNote();
   requestAnimationFrame(frame);
+  syncAll();
 }
 
 /* ---------------- boot ---------------- */
@@ -1752,6 +2089,7 @@ function startUI(){
     else if(Array.isArray(saved.players)) DATA.readers=saved.players;
     if(saved.islands&&typeof saved.islands==='object') DATA.islands=saved.islands;
     DATA.last=saved.last||null;
+    DATA.revs=saved.revs||{}; DATA.dirty=saved.dirty||{};
   }
   heal();
   startUI();

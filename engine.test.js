@@ -13,7 +13,7 @@ function loadGame(src,names){
   return new Function(...args,js+'\n;return {'+names+'};')({__TEST__:true},documentStub,localStorageStub,()=>({matches:false}),390,800,2,()=>0,noop,{},console);
 }
 const M=loadGame(html,'N,TPS,ROCKET,RES,ITEMS,BUILD,RECIPES,GOALS,GOAL_GIFT,UPGRADES,UP,AWAY_H,HIST_BUCKET_S,FAMILY,KEY,COLORS,OLD_SHIFT,'+
-  'genMap,dims,newIsland,unpackIsland,packIsland,place,removeB,placeProblem,setRecipe,turn,face,canFace,outTiles,step,at,give,creditAway,rateOf,checkGoals,unlocked,'+
+  'genMap,dims,newIsland,unpackIsland,packIsland,place,removeB,placeProblem,setRecipe,turn,face,canFace,placeOver,undoPlace,moveB,moveProblem,stubPlan,madePerMin,maxPerMin,outTiles,step,at,give,creditAway,rateOf,checkGoals,unlocked,'+
   'speedOf,awayHours,buyUpgrade,upgradeProblem,canUpgrade,islandCode,readCode,heal,openIsland,restartIsland,blob,'+
   'getData:function(){return DATA;},setData:function(d){DATA=d;},getISL:function(){return ISL;}');
 
@@ -99,6 +99,79 @@ M.RECIPES.furnace.forEach(rc=>ok(Object.keys(rc.in).length===1,'furnace '+rc.id+
   for(let i=0;i<4;i++) M.give(isl,f,'ironbar',0,R-16,R);
   run(isl,101);
   ok(f.out.engine===1,'motors + chips + iron bars make an engine');
+}
+
+/* ---- buildings come with their belts; dropping onto a line ---- */
+{
+  const isl=testIsland();
+  isl.goal=4; isl.store={stone:100,wood:100,gear:50,wire:50,ironbar:50};
+  const belt=(x,y)=>{ const b=M.at(isl,x,y); return b&&b.t==='belt'?b.r:null; };
+  const f=M.placeOver(isl,'furnace',R-15,R,0);
+  ok(f&&f.stubs.length===2&&belt(R-16,R)===0&&belt(R-14,R)===0,'a furnace comes with a belt in behind and one out front');
+  ok(isl.free.belt===38,'they’re ordinary belts (free ones first)');
+  ok(M.face(isl,f,1)&&belt(R-15,R-1)===1&&belt(R-15,R+1)===1&&belt(R-16,R)===null&&belt(R-14,R)===null,'pointing it another way moves its belts');
+  M.undoPlace(isl,f);
+  ok(!M.at(isl,R-15,R)&&belt(R-15,R-1)===null&&belt(R-15,R+1)===null&&isl.free.belt===40&&isl.store.stone===100,'Undo takes it all back');
+  const a=M.placeOver(isl,'assembler',R-20,R,0);
+  ok(a.stubs.length===3&&belt(R-21,R)===0&&belt(R-21,R+1)===0&&belt(R-19,R)===0,'an assembler gets a belt into each of its 2 squares and one out');
+  M.face(isl,a,1);
+  ok(a.r===1&&a.w===2&&belt(R-20,R-1)===1&&belt(R-19,R-1)===1&&belt(R-20,R+1)===1,'even when it swings around');
+  for(const [x,y] of [[R-10,R+4],[R-9,R+4],[R-10,R+5],[R-9,R+5]]) isl.map.res[y*N+x]=1;
+  const d=M.placeOver(isl,'drill',R-10,R+4,0);
+  ok(d.stubs.length===1&&belt(R-8,R+4)===0,'a drill only gets a belt out');
+  const g=M.stubPlan(isl,'furnace',R-6,R+4,2);
+  ok(g.length===2&&g.every(p=>p.r===2),'the preview knows the belts too');
+
+  const isl2=testIsland();
+  isl2.goal=1; isl2.store={stone:100,wood:100};
+  for(let x=R-12;x<R;x++) M.place(isl2,'belt',x,R+2,0);
+  M.give(isl2,M.at(isl2,R-8,R+2),'wood',0,R-9,R+2);
+  ok(!M.placeProblem(isl2,'furnace',R-8,R+2,0,true)&&M.placeProblem(isl2,'furnace',R-8,R+2,0)==='blocked','buildings can go on top of belts');
+  const fu=M.placeOver(isl2,'furnace',R-8,R+2,0);
+  ok(fu&&M.at(isl2,R-8,R+2)===fu&&fu.stubs.length===0&&fu.under.length===1,'dropped into the line: nothing extra needed');
+  ok(isl2.store.wood===100+1-10&&isl2.free.belt===40-12+1,'the belt under it (and the wood on it) went back (the furnace cost 10 wood)');
+  for(let i=0;i<3;i++){ M.give(isl2,M.at(isl2,R-12,R+2),'iron',isl2.tick,R-13,R+2); run(isl2,5); }
+  run(isl2,300);
+  ok(isl2.got.ironbar===3,'ore on the line becomes bars at the rocket ('+isl2.got.ironbar+')');
+  M.undoPlace(isl2,fu);
+  ok(M.at(isl2,R-8,R+2)&&M.at(isl2,R-8,R+2).t==='belt'&&M.at(isl2,R-8,R+2).r===0,'Undo puts the line back');
+  ok(M.placeProblem(isl2,'furnace',R+1,R+1,0,true)==='blocked','but not on top of other buildings');
+}
+
+/* ---- machine status and rates ---- */
+{
+  const isl=testIsland();
+  isl.goal=4; isl.store={stone:100,wood:100,gear:50,wire:50,ironbar:50};
+  const f=M.place(isl,'furnace',R-15,R,0), a=M.place(isl,'assembler',R-20,R,0);
+  run(isl,100);
+  ok(f.st==='wait'&&f.stT>=60,'a furnace with nothing coming is waiting');
+  ok(a.st==='none','an assembler with no recipe says so');
+  for(const [x,y] of [[R-10,R+4],[R-9,R+4],[R-10,R+5],[R-9,R+5]]) isl.map.res[y*N+x]=1;
+  const d=M.place(isl,'drill',R-10,R+4,0);
+  run(isl,200);
+  ok(d.st==='full','a drill with nowhere to put things is full');
+  ok(Math.round(M.maxPerMin(isl,d))===60&&Math.round(M.maxPerMin(isl,f))===40,'most it can make: drill 60/min, furnace 40/min');
+}
+
+/* ---- moving a building ---- */
+{
+  const isl=testIsland();
+  isl.goal=4; isl.store={stone:100,wood:100,gear:50,wire:50,ironbar:50};
+  const a=M.place(isl,'assembler',R-20,R,0);
+  M.setRecipe(isl,a,'motor'); M.give(isl,a,'gear',0,R-21,R);
+  const free=isl.free.belt, wood=isl.store.wood;
+  ok(M.moveB(isl,a,R-16,R+2,0)&&M.at(isl,R-16,R+2)===a&&M.at(isl,R-16,R+3)===a&&!M.at(isl,R-20,R),'it moves to the new spot');
+  ok(a.rc==='motor'&&a.in.gear===1,'keeping its recipe and what it holds');
+  ok(a.stubs.length===3&&isl.free.belt===free-3&&isl.store.wood===wood,'and gets belts where it lands (it costs nothing to move)');
+  a.stubs=[];
+  ok(M.moveB(isl,a,R-16,R+1,0)&&a.y===R+1,'it can land partly on its own old spot');
+  ok(M.moveProblem(isl,a,R+1,R+1,0)==='blocked'&&M.moveProblem(isl,M.at(isl,R+1,R+1),R-20,R,0)==='rocket','not onto other buildings, and the rocket stays');
+  for(let x=R-12;x<R-6;x++) M.place(isl,'belt',x,R+6,0);
+  a.stubs=[];
+  ok(M.moveB(isl,a,R-9,R+5,0)&&M.at(isl,R-9,R+6)===a,'it can land on a belt line');
+  for(const [x,y] of [[R-20,R+4],[R-19,R+4],[R-20,R+5],[R-19,R+5]]) isl.map.res[y*N+x]=1;
+  const d=M.place(isl,'drill',R-20,R+4,0);
+  ok(M.moveProblem(isl,d,R-14,R-3,0)==='nores','a drill has to land on something to mine');
 }
 
 /* ---- belts ---- */

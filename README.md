@@ -13,6 +13,10 @@ and fly home. A family factory game in the spirit of Builderment.
 - The factory keeps working while you're away (8 hours' worth, up to 24 with upgrades).
 - Islands save on the device. A **save code** moves an island to another device.
 
+New buildings come with their belts (one in per square, one out), can be dropped onto a belt line, show 💤/⛔
+when stuck, and can be copied (📋) or moved (press and hold). Drag with a drill to lay a row. Played from the
+chore board, islands are kept on the board so every device at home shares them.
+
 Touch first: drag to look around and pinch to zoom; with a tool picked, draw belts with one finger and
 move the map with two. Mouse and wheel work too (R turns, Esc cancels).
 
